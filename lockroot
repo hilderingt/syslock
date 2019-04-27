@@ -93,8 +93,8 @@ for PARAM in $(cat /proc/cmdline); do
 done
 
 # check if read-only root fs is disabled
-if [ ! "x${NOLOCK}" = "xtrue" ]; then
-    log_warning_msg "${PKGNAME}: disabled, found kernel boot parameter 'nonlock'"
+if [ "x${NOLOCK}" = "xtrue" ]; then
+    log_warning_msg "${PKGNAME}: disabled, found kernel boot parameter 'nolock'"
     exit 0
 fi
 
@@ -142,14 +142,6 @@ if [ $? -ne 0 ]; then
     exit 0
 fi
 
-
-# mount a tempfs using the device name tmpfs-root at ${TMP_ROOT_RW}
-mount -t tmpfs tmpfs-root ${TMP_ROOT_RW}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 6: failed to create tmpfs for root filesystem"
-    exit 0
-fi
-
 [ -d ${TMP_ROOT_RW_UPPER} ] || mkdir -p ${TMP_ROOT_RW_UPPER}
 if [ $? -ne 0 ]; then
     log_failure_msg "${PKGNAME}: ERROR 6.1: failed to create ${TMP_ROOT_RW_UPPER}"
@@ -159,6 +151,13 @@ fi
 [ -d ${TMP_ROOT_RW_WORK} ] || mkdir -p ${TMP_ROOT_RW_WORK}
 if [ $? -ne 0 ]; then
     log_failure_msg "${PKGNAME}: ERROR 6.2: failed to create ${TMP_ROOT_RW_WORK}"
+    exit 0
+fi
+
+# mount a tempfs using the device name tmpfs-root at ${TMP_ROOT_RW}
+mount -t tmpfs tmpfs-root ${TMP_ROOT_RW}
+if [ $? -ne 0 ]; then
+    log_failure_msg "${PKGNAME}: ERROR 6: failed to create tmpfs for root filesystem"
     exit 0
 fi
 
