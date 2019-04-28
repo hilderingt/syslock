@@ -5,6 +5,14 @@ prereqs()
     echo "${PREREQ}"
 }
 
+recover_rootmnt()
+{
+    mount -o move ${1} ${rootmnt}
+    if [ $? -ne 0 ]; then
+       panic "${PKGNAME}: recovery error: failed to restore original root filesystem to ${rootmnt}"
+    fi
+}
+
 case "$1" in
     prereqs)
     prereqs
@@ -36,83 +44,81 @@ if [ -e "${rootmnt}${NOLOCK_FILE}" ]; then
     exit 0
 fi
 
-ROOT_OVERLAY_BASE=/.lock
-ROOT_OVERLAY_UPPER=/${ROOT_OVERLAY_BASE}/rw
-ROOT_OVERLAY_LOWER=/${ROOT_OVERLAY_BASE}/ro
-ROOT_OVERLAY_WORK=/${ROOT_OVERLAY_BASE}/.work
+ROOT_OVERLAY_BASEDIR=/.lock
+ROOT_OVERLAY_WORKDIR=${ROOT_OVERLAY_BASEDIR}/.work
+ROOT_OVERLAY_UPPERDIR=${ROOT_OVERLAY_BASEDIR}/rw
+ROOT_OVERLAY_LOWERDIR=${ROOT_OVERLAY_BASEDIR}/ro
 
-mount -t tmpfs tmpfs-root ${ROOT_OVERLAY_BASE}
+mount -t tmpfs tmpfs-root ${ROOT_OVERLAY_BASEDIR}
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 1: failed to create tmpfs for root filesystem"
+    log_failure_msg "${PKGNAME}: error 1: failed to create tmpfs for root filesystem"
     exit 0
 fi
 
 #modprobe -qb ${ROOT_RO_DRIVER}
 #if [ $? -ne 0 ]; then
-#    log_failure_msg "${PKGNAME} ERROR 2: missing kernel module ${ROOT_RO_DRIVER}"
+#    log_failure_msg "${PKGNAME} error 2: missing kernel module ${ROOT_RO_DRIVER}"
 #    exit 0
 #fi
 
-[ -d ${ROOT_OVERLAY_UPPER} ] || mkdir -p ${ROOT_OVERLAY_UPPER}
+[ -d ${ROOT_OVERLAY_UPPERDIR} ] || mkdir -p ${ROOT_OVERLAY_UPPERDIR}
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 1.1: failed to create ${ROOT_OVERLAY_UPPER}"
+    log_failure_msg "${PKGNAME}: error 1.1: failed to create ${ROOT_OVERLAY_UPPERDIR}"
     exit 0
 fi
 
-[ -d ${ROOT_OVERLAY_LOWER} ] || mkdir -p ${ROOT_OVERLAY_LOWER}
+[ -d ${ROOT_OVERLAY_LOWERDIR} ] || mkdir -p ${ROOT_OVERLAY_LOWERDIR}
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 1.2: failed to create ${ROOT_OVERLAY_LOWER}"
+    log_failure_msg "${PKGNAME}: error 1.2: failed to create ${ROOT_OVERLAY_LOWERDIR}"
     exit 0
 fi
 
-[ -d ${ROOT_OVERLAY_WORK} ] || mkdir -p ${ROOT_OVERLAY_WORK}
+[ -d ${ROOT_OVERLAY_WORKDIR} ] || mkdir -p ${ROOT_OVERLAY_WORKDIR}
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 1.3: failed to create ${ROOT_OVERLAY_WORK}"
+    log_failure_msg "${PKGNAME}: error 1.3: failed to create ${ROOT_OVERLAY_WORKDIR}"
     exit 0
 fi
 
-mount -o move ${rootmnt} ${ROOT_OVERLAY_LOWER}
+mount -o move ${rootmnt} ${ROOT_OVERLAY_LOWERDIR}
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 2: failed to move root filesystem from ${rootmnt} to ${ROOT_OVERLAY_LOWER}"
+    log_failure_msg "${PKGNAME}: error 2: failed to move root filesystem from ${rootmnt} to ${ROOT_OVERLAY_LOWERDIR}"
     exit 0
 fi
 
-mount -t overlay -o lowerdir=${ROOT_OVERLAY_LOWER},upperdir=${ROOT_OVERLAY_UPPER},workdir=${ROOT_OVERLAY_WORK} overlay ${rootmnt}
+mount -t overlay -o lowerdir=${ROOT_OVERLAY_LOWERDIR},upperdir=${ROOT_OVERLAY_UPPERDIR},workdir=${ROOT_OVERLAY_WORKDIR} overlay-root ${rootmnt}
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 3: failed to create overlay for root filesystem"
-
-    mount -o move ${ROOT_OVERLAY_LOWER} ${rootmnt}
-    if [ $? -ne 0 ]; then
-
-       panic "${PKGNAME}: RECOVERY ERROR: failed to move root filesystem back to ${rootmnt}"
-    fi
+    log_failure_msg "${PKGNAME}: error 3: failed to create overlay for root filesystem"
+    recover_rootmnt ${ROOT_OVERLAY_LOWERDIR}
     exit 0
 fi
 
-[ -d ${rootmnt}${ROOT_OVERLAY_BASE} ] || mkdir -p ${rootmnt}${ROOT_OVERLAY_BASE}
-mount -o move ${ROOT_OVERLAY_BASE} ${rootmnt}${ROOT_OVERLAY_BASE}
+[ -d ${rootmnt}${ROOT_OVERLAY_BASEDIR} ] || mkdir -p ${rootmnt}${ROOT_OVERLAY_BASEDIR}
+mount -o move ${ROOT_OVERLAY_BASEDIR} ${rootmnt}${ROOT_OVERLAY_BASEDIR}
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 4: failed to move ${ROOT_OVERLAY_BASE} to ${rootmnt}${ROOT_OVERLAY_BASE}"
+    log_failure_msg "${PKGNAME}: error 4: failed to move ${ROOT_OVERLAY_BASEDIR} to ${rootmnt}${ROOT_OVERLAY_BASEDIR}"
+    recover_rootmnt ${ROOT_OVERLAY_LOWERDIR}
     exit 0
 fi
 
 ROOT_FSTYPE_MNTOPTS=$(cat /proc/mounts | ${rootmnt}/bin/grep ${ROOT} | ${rootmnt}/usr/bin/cut -d' ' -f3,4)
 cat <<EOF >${rootmnt}/etc/fstab
 #
-#  fstab modified by lockroot at startup
+#  modified by lockroot at startup
 #
 
 ${ROOT} ${REAL_ROOT_RO} ${ROOT_FSTYPE_MNTOPTS} 0 0
 EOF
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 5: failed to modify original root filsystem fstab entry"
-    #exit 0
+    log_failure_msg "${PKGNAME}: error 5: failed to modify original root filsystem fstab entry"
+    recover_rootmnt ${rootmn}${ROOT_OVERLAY_LOWERDIR}
+    exit 0
 fi
 
 cat ${rootmnt}${REAL_ROOT_RO}/etc/fstab | ${rootmnt}/bin/grep -v ' / ' | ${rootmnt}/bin/grep -v swap >>${rootmnt}/etc/fstab
 if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: ERROR 6: failed to delete fstab entries for root filesystem and swap"
-    #exit 0
+    log_failure_msg "${PKGNAME}: error 6: failed to delete fstab entries for root filesystem and swap"
+    recover_rootmnt ${rootmn}${ROOT_OVERLAY_LOWERDIR}
+    exit 0
 fi
 
 log_success_msg "${PKGNAME}: sucessfully set up overlay for root filesystem"
