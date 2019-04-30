@@ -7,14 +7,6 @@ prereqs()
     echo "${PREREQ}"
 }
 
-recover_rootmnt()
-{
-    mount -o move ${1} ${rootmnt}
-    if [ $? -ne 0 ]; then
-       panic "${PKGNAME}: recovery error: failed to revover original root filesystem to ${rootmnt}"
-    fi
-}
-
 case "$1" in
     prereqs)
     prereqs
@@ -52,10 +44,6 @@ ROOT_OVERLAY_WORKDIR=${ROOT_OVERLAY_BASEDIR}/.work
 ROOT_OVERLAY_UPPERDIR=${ROOT_OVERLAY_BASEDIR}/rw
 ROOT_OVERLAY_LOWERDIR=${ROOT_OVERLAY_BASEDIR}/ro
 
-[ -d ${ROOT_OVERLAY_TEMPMNT} ] || mkdir -p ${ROOT_OVERLAY_TEMPMNT}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 1: failed to create '${ROOT_OVERLAY_TEMPMNT}'"
-
 mount -t tmpfs tmpfs-root ${ROOT_OVERLAY_BASEDIR}
 if [ $? -ne 0 ]; then
     log_failure_msg "${PKGNAME}: error 1.1: failed to create tmpfs for root filesystem"
@@ -83,6 +71,12 @@ fi
 mount -o move ${rootmnt} ${ROOT_OVERLAY_LOWERDIR}
 if [ $? -ne 0 ]; then
     log_failure_msg "${PKGNAME}: error 2: failed to move root filesystem from '${rootmnt}' to '${ROOT_OVERLAY_LOWERDIR}'"
+    exit 0
+fi
+
+[ -d ${ROOT_OVERLAY_TEMPMNT} ] || mkdir -p ${ROOT_OVERLAY_TEMPMNT}
+if [ $? -ne 0 ]; then
+    log_failure_msg "${PKGNAME}: error 1: failed to create '${ROOT_OVERLAY_TEMPMNT}'"
     exit 0
 fi
 
@@ -116,8 +110,7 @@ while IFS= read -r line; do
             continue
         fi
 
-        if [ "x${fstype}" = "xnone" \
-                -o "x${fstype}" = "xignore" -o "x${fstype}" = "xtmpfs" ]; then
+        if [ "x${fstype}" = "xnone" -o "x${fstype}" = "xignore" -o "x${fstype}" = "xtmpfs" ]; then
             echo "${line}"
             continue
         fi
