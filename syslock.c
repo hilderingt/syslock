@@ -4,30 +4,44 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define PREREQS             ""
-#define PKGNAME             "syslock"
-#define NOLOCK_FILE         "/nolock"
-#define CMDLINE_BUFSZ       256
+static char const pkgname[]      = "syslock";
+static char const nolock_file[]  = "/nolock";
+static int  const cmdline_bufsz  = 256;
+static int  const msg_on         = 1;
 
-#define ROOT_OVERLAY_MOUNT        "/mnt/overlay"
-#define ROOT_OVERLAY_INNER_BASE   "/mnt/overlay/.lock"
-#define ROOT_OVERLAY_OUTER_BASE   "/.lock"
-#define ROOT_OVERLAY_UPPER        "/.lock/rw"
-#define ROOT_OVERLAY_LOWER        "/.lock/ro"
-#define ROOT_OVERLAY_WORK         "/.lock/.work"
+static char const ovl_mount[]    = "/mnt/overlay";
+static char const ovl_base_in[]  = "/mnt/overlay/.locks";
+static char const ovl_base_out[] = "/.lock";
+static char const ovl_lower[]    = "/.lock/ro";
+static char const ovl_upper[]    = "/.lock/rw";
+static char const ovl_work[]     = "/.lock/.work";
 
 #define DEFAULT_DIRPERMS    (S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH)
 
-void log_msg(char const *fmt, ...)
+void log_msg(char const *type, char const *msg)
 {
-
+	if (msg_on)
+		printf("syslock: %s: %s\n");
 }
 
-void log_warning_msg(
+void log_warning_msg(char const *msg)
+{
+	log_msg("Warning", msg);
+}
+
+void log_failure_msg(char const *msg)
+{
+	log_msg("Failure", msg);
+}
+
+void log_success_msg(char const *msg)
+{
+	log_msg("Success", msg);
+}
 
 int check_disabled()
 {
-	ssize_t usable = CMDLINE_BUFSZ;
+	ssize_t usable = cmdline_bufsz;
 	ssize_t used = 0;
 	ssize_t nbytes;
 	char *cmdbuf;
@@ -35,15 +49,23 @@ int check_disabled()
 	char *param;
 	int fd;
 
-	if (access(NOLOCK_FILE, F_OK) != -1)
+	if (access(nolock_file, F_OK) != -1) {
+		log_warning_msg("Disabled by existence of file '/nolock."
 		return (1);
+	}
+
+	if (errno != NOENT) {
+		log_failure_msg("Failed to check for existence of file '/nolock'.")
+		return (-1);
+	}
 
 	fd = open("/proc/cmdline", O_RDONLY);
 
-	if (fd == -1)
+	if (fd == -1) {
+		log_failure_msg("Failed to read kernel boot parameter from '/proc/cmdline'.")
 		return (-1);
 	
-	cmdbuf = malloc(sizeof(char) * bufsz);
+	cmdbuf = malloc(sizeof(char) * usable);
 
 	if (cmdbuf == NULL)
 		return (-1);
@@ -87,11 +109,25 @@ out_free:
 
 int main(int argc, char **argv)
 {
+	char *rootmnt;
+	char *quiet;
 	int nolock;
 	int ret;
 
 	if (argc > 1 && !strcmp(argv[1], "prereqs") {
-		printf(PREREQS);
+		printf("");
+		return (0);
+	}
+
+	quiet = getenv("quiet");
+
+	if (quiet != NULL && !strcmp(quiet, "y"))
+		msg_on = 0;
+
+	rootmnt = getenv("rootmnt");
+
+	if (rootmnt == NULL) {
+		log_failure_msg("Failed to load environment variable ${rootmnt}.");
 		return (0);
 	}
 
@@ -99,6 +135,7 @@ int main(int argc, char **argv)
 		if (nolock == -1)
 			return (1)
 
+		log_warning_msg("
 		return (0);
 	}
 
