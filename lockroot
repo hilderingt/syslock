@@ -1,151 +1,153 @@
 #!/bin/sh
 
-PREREQ=""
-
-prereqs()
+recover_rootmnt()
 {
-    echo "${PREREQ}"
+    mount --move ${1} ${rootmnt} || mount -o move ${1} ${rootmnt}
+    if [ $? -ne 0 ]; then
+       panic "${progname}: recovery error: failed to recover root filesystem to ${rootmnt}"
+    fi
 }
 
 case "$1" in
     prereqs)
-    	prereqs
+    	echo ""
     	exit 0
     	;;
 esac
 
-#. /scripts/functions
-. /usr/share/initramfs-tools/scripts/functions
+. /scripts/functions
 
-PKGNAME="lockroot"
-NOLOCK_FILE="/nolock"
-rootmnt="/tmp/root"
+progname="lockroot"
+nolock_file="/nolock"
 
-NOLOCK=
-for PARAM in $(cat /proc/cmdline); do
-    case ${PARAM} in
+nolock=
+for param in $(cat /proc/cmdline); do
+    case ${param} in
         nolock)
-            NOLOCK=true ;;
+            nolock=true ;;
     esac
 done
 
-if [ "x${NOLOCK}" = "xtrue" ]; then
-    log_warning_msg "${PKGNAME}: disabled, found kernel boot parameter 'nolock'"
+if [ "x${nolock}" = "xtrue" ]; then
+    log_warning_msg "${progname}: disabled, found kernel boot parameter 'nolock'"
     exit 0
 fi
 
-if [ -e "${rootmnt}${NOLOCK_FILE}" ]; then
-    log_warning_msg "${PKGNAME}: disabled, found file '${rootmnt}${NOLOCK_FILE}'"
+if [ -e "${rootmnt}${nolock_file}" ]; then
+    log_warning_msg "${progname}: disabled, found file '${rootmnt}${nolock_file}'"
     exit 0
 fi
 
-ROOT_OVERLAY_MOUNT=/mnt/overlay
-ROOT_OVERLAY_BASE=/.lock
-ROOT_OVERLAY_WORK=${ROOT_OVERLAY_BASE}/.work
-ROOT_OVERLAY_UPPER=${ROOT_OVERLAY_BASE}/rw
-ROOT_OVERLAY_LOWER=${ROOT_OVERLAY_BASE}/ro
+overlay_mount=/mnt/overlay
+overlay_base=/.lock
+overlay_upper=${overlay_base}/rw
+overlay_lower=${overlay_base}/ro
+overlay_work=${overlay_base}/.work
 
-[ -d ${ROOT_OVERLAY_BASE} ] || mkdir -p ${ROOT_OVERLAY_BASE}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 1.1: failed to create '${ROOT_OVERLAY_BASE}'"
+[ -d ${overlay_base} ] || mkdir -p ${overlay_base}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 1.1: failed to create '${overlay_base}'"
     exit 0
 fi
 
-mount -t tmpfs tmpfs-root ${ROOT_OVERLAY_BASE}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 1.2: failed to create tmpfs for root filesystem"
+mount -t tmpfs tmpfs-root ${overlay_base}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 1.2: failed to create tmpfs for root filesystem"
     exit 0
 fi
 
-[ -d ${ROOT_OVERLAY_UPPER} ] || mkdir -p ${ROOT_OVERLAY_UPPER}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 2.1: failed to create '${ROOT_OVERLAY_UPPER}'"
+[ -d ${overlay_upper} ] || mkdir -p ${overlay_upper}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 2.1: failed to create '${overlay_upper}'"
     exit 0
 fi
 
-[ -d ${ROOT_OVERLAY_LOWER} ] || mkdir -p ${ROOT_OVERLAY_LOWER}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 2.2: failed to create '${ROOT_OVERLAY_LOWER}'"
+[ -d ${overlay_lower} ] || mkdir -p ${overlay_lower}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 2.2: failed to create '${overlay_lower}'"
     exit 0
 fi
 
-[ -d ${ROOT_OVERLAY_WORK} ] || mkdir -p ${ROOT_OVERLAY_WORK}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 2.3: failed to create '${ROOT_OVERLAY_WORK}'"
+[ -d ${overlay_work} ] || mkdir -p ${overlay_work}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 2.3: failed to create '${overlay_work}'"
     exit 0
 fi
 
-mount --move ${rootmnt} ${ROOT_OVERLAY_LOWER} || mount -o move ${rootmnt} ${ROOT_OVERLAY_LOWER}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 3: failed to move root filesystem from '${rootmnt}' to '${ROOT_OVERLAY_LOWER}'"
+mount --move ${rootmnt} ${overlay_lower} || mount -o move ${rootmnt} ${overlay_lower}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 3: failed to move root filesystem from '${rootmnt}' to '${overlay_lower}'"
     exit 0
 fi
 
-[ -d ${ROOT_OVERLAY_MOUNT} ] || mkdir -p ${ROOT_OVERLAY_MOUNT}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 4.1: failed to create '${ROOT_OVERLAY_MOUNT}'"
+[ -d ${overlay_mount} ] || mkdir -p ${overlay_mount}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 4.1: failed to create '${overlay_mount}'"
+    recover_rootmnt "${overlay_lower}"
     exit 0
 fi
 
-mount -t overlay -o lowerdir=${ROOT_OVERLAY_LOWER},upperdir=${ROOT_OVERLAY_UPPER},workdir=${ROOT_OVERLAY_WORK} overlay-root ${ROOT_OVERLAY_MOUNT}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 4.2: failed to create overlay for root filesystem"
+mount -t overlay -o lowerdir=${overlay_lower},upperdir=${overlay_upper},workdir=${overlay_work} overlay-root ${overlay_mount}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 4.2: failed to create overlay for root filesystem"
+    recover_rootmnt "${overlay_lower}"
     exit 0
 fi
 
-[ -d ${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_BASE} ] || mkdir -p ${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_BASE}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 5.1: failed to create '${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_BASE}'"
+[ -d ${overlay_mount}${overlay_base} ] || mkdir -p ${overlay_mount}${overlay_base}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 5.1: failed to create '${overlay_mount}${overlay_base}'"
+    recover_rootmnt "${overlay_lower}"
     exit 0
 fi
 
-mount --move ${ROOT_OVERLAY_BASE} ${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_BASE} || mount -o move ${ROOT_OVERLAY_BASE} ${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_BASE}
-if [ $? -ne 0 ]; then
-    log_failure_msg "${PKGNAME}: error 5.2: failed to move '${ROOT_OVERLAY_BASE}' to '${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_BASE}'"
+mount --move ${overlay_base} ${overlay_mount}${overlay_base} || mount -o move ${overlay_base} ${overlay_mount}${overlay_base}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 5.2: failed to move '${overlay_base}' to '${overlay_mount}${overlay_base}'"
+    recover_rootmnt "${overlay_lower}"
     exit 0
 fi
 
-OLD_FSTAB=${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_LOWER}/etc/fstab
-NEW_FSTAB=${ROOT_OVERLAY_MOUNT}/etc/fstab
+fstab_system=${overlay_mount}${overlay_lower}/etc/fstab
+fstab_overlay=${overlay_mount}/etc/fstab
 
-cat <<EOF >${NEW_FSTAB}
+cat <<EOF >${fstab_overlay}
 #
 #  modified by lockroot at startup
 #
 EOF
 
-grep -v '^[[:blank:]]*\(#\|$\)' ${OLD_FSTAB} |
-while IFS= read -r line; do
-    while read -r source target fstype mntopts dump pass; do
-        if [ "x${target}" = "x/" -o "x${fstype}" = "xswap" ]; then
-            echo "#${line}"
-            continue
-        fi
+grep -v '^[[:blank:]]*\(#\|$\)' ${fstab_system} |
+while IFS= read -r entry; do
+    echo "${entry}" | read -r source target fstype mntopts dump pass
 
-        if [ "x${fstype}" = "xnone" -o "x${fstype}" = "xignore" -o "x${fstype}" = "xtmpfs" ]; then
-            echo "${line}"
-            continue
-        fi
-
-        case "${source}" in
-            UUID=*|LABEL=*|/*)
-                echo "${source} ${target} lockdev devfs=${fstype},${mntopts} ${dump} ${pass}" ;;
-            *)
-                echo "${line}" ;;
-        esac
-    done <<-EOF
-${line}
-EOF
-done >>${NEW_FSTAB}
-
-mount --move ${ROOT_OVERLAY_MOUNT} ${rootmnt} || mount -o move ${ROOT_OVERLAY_MOUNT} ${rootmnt}
-if [ $? -ne 0 ]; then
-    mount --move ${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_LOWER} ${rootmnt} || mount -o move ${ROOT_OVERLAY_MOUNT}${ROOT_OVERLAY_LOWER} ${rootmnt}
-    if [ $? -ne 0 ]; then
-       panic "${PKGNAME}: recovery error: failed to revover original root filesystem to ${rootmnt}"
+    if [ "x${target}" = "x/" -o "x${fstype}" = "xswap" ]; then
+        echo "#${entry}"
+        continue
     fi
+
+    if [ "x${fstype}" = "xnone" -o "x${fstype}" = "xignore" -o "x${fstype}" = "xtmpfs" ]
+        echo "${entry}"
+        continue
+	fi
+
+    echo "${mntopts}" | grep -q '\(noauto\|r\?bind\)' && echo "${entry}" && continue
+
+    case "${source}" in
+        UUID=*|LABEL=*|/*)
+            echo "${source} ${target} lockdev devfs=${fstype},${mntopts} ${dump} ${pass}" ;;
+        *)
+            echo "${entry}" ;;
+    esac
+done >${fstab_overlay}
+
+mount --move ${overlay_mount} ${rootmnt} || mount -o move ${overlay_mount} ${rootmnt}
+if [ ${?} -ne 0 ]; then
+    log_failure_msg "${progname}: error 6: failed to move '${overlay_mount}' to '${rootmnt}'"
+    recover_rootmnt "${overlay_mount}${overlay_lower}"
+    exit 0
 fi
 
-log_success_msg "${PKGNAME}: sucessfully set up overlay for root filesystem"
+log_success_msg "${progname}: sucessfully set up overlay for root filesystem"
 
 exit 0
