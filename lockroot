@@ -8,6 +8,32 @@ recover_rootmnt()
     fi
 }
 
+lock_device()
+{
+    local device
+
+    case "${1}" in
+        UUID=*)
+            device=$(blkid -U "${1#UUID=}") ;;
+        LABEL=*)
+            device=$(blkid -L "${1#LABEL=}") ;;
+        *)
+            device=${1} ;;
+    esac
+
+    if [ "x${device}" = "x" ]; then
+        log_warning_msg "${progname}: failed to look up device for ${1}"
+        return 1
+    fi
+
+    if ! blockdev --setro "${device}"; then
+        log_warning_msg "${progname}: failed to set device '${device}' read-only"
+        return 2
+    fi
+
+    return 0
+}
+
 case "$1" in
     prereqs)
     	echo ""
@@ -17,7 +43,8 @@ esac
 . /scripts/functions
 
 progname="lockroot"
-nolock_file="/nolock"
+config_file="${rootmnt}/etc/lockroot.conf"
+nolock_file="${rootmnt}/nolock"
 
 nolock=
 for param in $(cat /proc/cmdline); do
@@ -32,9 +59,29 @@ if [ "x${nolock}" = "xtrue" ]; then
     exit 0
 fi
 
-if [ -e "${rootmnt}${nolock_file}" ]; then
-    log_warning_msg "${progname}: disabled, found file '${rootmnt}${nolock_file}'"
+if [ -e "${nolock_file}" ]; then
+    log_warning_msg "${progname}: disabled, found file '${nolock_file}'"
     exit 0
+fi
+
+if [ -e "${config_file}" ]; then
+    while IFS= read -r line; do
+        case "x$(echo ${line})" in
+            x | x\#*)
+                continue ;;
+        esac
+
+        case "${line}" in
+            LOCKROOT_SWAP=*)
+                lockroot_swap=${line#LOCKROOT_SWAP=} ;;
+            LOCKROOT_LOCK=*)
+                lockroot_lock=$(IFS=','; echo ${line#LOCKROOT_LOCK=}) ;;
+            *=*)
+                echo "${progname}: unknown configuration paramter '${line%=*}'" ;;
+            *)
+                echo "${progname}: invalid line '${line}'" ;;
+        esac
+    done < ${config_file}
 fi
 
 ovl_mount=/mnt/overlay
@@ -118,27 +165,32 @@ EOF
 
 grep -v '^[[:blank:]]*\(#\|$\)' ${fstab_system} |
 while IFS= read -r entry; do
-    echo "${entry}" | read -r source target fstype mntopts dump pass
+    echo "${entry}" | read -r source target fstype mntopts
 
-    if [ "x${target}" = "x/" -o "x${fstype}" = "xswap" ]; then
+    if [ "x${target}" = "x/" ]; then
         echo "#${entry}"
         continue
     fi
 
-    if [ "x${fstype}" = "xnone" -o "x${fstype}" = "xignore" -o "x${fstype}" = "xtmpfs" ]
-        echo "${entry}"
-        continue
+    if [ "x${fstype}" = "xswap" ]; then
+        if [ "x${lockroot_swap}" != "xon" ]; then
+            echo "#${entry}"
+        else
+            echo "${entry}"
+        fi
     fi
 
-    echo "${mntopts}" | grep -q '\(noauto\|r\?bind\)' && echo "${entry}" && continue
-
-    case "${source}" in
-        UUID=*|LABEL=*|/*)
-            echo "${source} ${target} lockdev devfs=${fstype},${mntopts} ${dump} ${pass}" ;;
-        *)
-            echo "${entry}" ;;
-    esac
-done >${fstab_overlay}
+    for device in ${lockroot_lock}; do
+        if [ "${device}" = "${source}" ]; then
+            mntopts=$(echo "${mntopts}" | sed 's/\(rw,\)\|\(,rw\)\|\(^rw$\)//')
+            if [ "x${mntopts}" != "x" ]; then
+                mntopts="ro,${mntopts}"
+            else
+                mntopts="ro"
+            fi
+        fi
+    done
+done > ${fstab_overlay}
 
 mount --move ${ovl_mount} ${rootmnt} || mount -o move ${ovl_mount} ${rootmnt}
 if [ ${?} -ne 0 ]; then
