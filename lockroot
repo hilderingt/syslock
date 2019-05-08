@@ -8,25 +8,35 @@ recover_rootmnt()
     fi
 }
 
-lock_device()
+try_blkid()
 {
-    local device
+    local blkdev=""
 
     case "${1}" in
         UUID=*)
-            device=$(blkid -U "${1#UUID=}") ;;
+            blkdev=$(blkid -U "${1#UUID=}") ;;
         LABEL=*)
-            device=$(blkid -L "${1#LABEL=}") ;;
+            blkdev=$(blkid -L "${1#LABEL=}") ;;
         *)
-            device=${1} ;;
+            true ;;
     esac
 
-    if [ "x${device}" = "x" ]; then
-        log_warning_msg "${progname}: failed to look up device for ${1}"
+    echo -n "${blkdev}"
+    return ${?}
+}
+
+lock_device()
+{
+    local blkdev
+
+    blkdev=$(try_blkid "${1}")
+
+    if [ ${?} -ne 0 ]; then
+        log_warning_msg "${progname}: failed to look up block device for ${1}"
         return 1
     fi
 
-    if ! blockdev --setro "${device}"; then
+    if [ "x${blkdev}" != "x" ] && ! blockdev --setro "${device}"; then
         log_warning_msg "${progname}: failed to set device '${device}' read-only"
         return 2
     fi
@@ -180,15 +190,19 @@ while IFS= read -r entry; do
         fi
     fi
 
-    for device in ${lockroot_lock}; do
-        if [ "${device}" = "${source}" ]; then
-            mntopts=$(echo "${mntopts}" | sed 's/\(rw,\)\|\(,rw\)\|\(^rw$\)//')
-            if [ "x${mntopts}" != "x" ]; then
-                mntopts="ro,${mntopts}"
-            else
-                mntopts="ro"
-            fi
-        fi
+    while [ "x${source}" != "x" ]; do       
+	    for device in ${lockroot_lock}; do
+		    if [ "x${device}" = "x${source}" ]; then
+		        mntopts=$(echo "${mntopts}" | sed 's/\(rw,\)\|\(,rw\)\|\(^rw$\)//')
+		        if [ "x${mntopts}" != "x" ]; then
+		            mntopts="ro,${mntopts}"
+		        else
+		            mntopts="ro"
+		        fi
+		    fi
+	    done
+
+        source=$(try_blkid "${source}")               
     done
 done > ${fstab_overlay}
 
