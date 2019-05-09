@@ -3,14 +3,14 @@
 recover_rootmnt()
 {
     mount --move ${1} ${rootmnt} || mount -o move ${1} ${rootmnt}
-    if [ $? -ne 0 ]; then
+    if [ ${?} -ne 0 ]; then
        panic "${progname}: failed to recover root filesystem to '${rootmnt}'"
     fi
 }
 
-try_blkid()
+may_translate_blkid()
 {
-    local blkdev=""
+    local blkdev
 
     case "${1}" in
         UUID=*)
@@ -18,6 +18,7 @@ try_blkid()
         LABEL=*)
             blkdev=$(blkid -L "${1#LABEL=}") ;;
         *)
+            blkdev=${1}
             true ;;
     esac
 
@@ -25,19 +26,34 @@ try_blkid()
     return ${?}
 }
 
-lock_device()
+blkdev_contains()
+{
+    local parent="" part=${1##*/} devdir=${1%/*}
+
+    for bdev in $(cd /sys/block && echo *); do
+        case "${part}" in
+            ${bdev}*)
+                parent=${bdev} ;;
+            *)
+                continue ;;
+        esac
+
+        if ! [ \( -d "/sys/block/${parent}/${part}" -o "x${parent}" = "x${part}" \) -a -b "${devdir}/${parent}" ]; then
+            parent=""
+        else
+            break
+        fi
+    done
+
+    echo -n "${parent}"               
+}
+
+lock_blkdev()
 {
     local blkdev
 
-    blkdev=$(try_blkid "${1}")
-
-    if [ ${?} -ne 0 ]; then
-        log_warning_msg "${progname}: failed to look up block device for ${1}"
-        return 1
-    fi
-
-    if [ "x${blkdev}" != "x" ] && ! blockdev --setro "${device}"; then
-        log_warning_msg "${progname}: failed to set device '${device}' read-only"
+    if [ "x${blkdev}" != "x" ] && ! blockdev --setro "${blkdev}"; then
+        log_warning_msg "${progname}: failed to set device '${blkdev}' read-only"
         return 2
     fi
 
@@ -173,37 +189,58 @@ cat <<EOF >${fstab_overlay}
 #
 EOF
 
+devices=
+device=
+parent=
+
 grep -v '^[[:blank:]]*\(#\|$\)' ${fstab_system} |
 while IFS= read -r entry; do
     echo "${entry}" | read -r source target fstype mntopts
 
+    device=$(may_translate_blkid "${source}")
+    if [ ${?} -ne 0 ]; then
+        log_warning_msg "${progname}: failed to translate uuid/label to block device"
+    fi  
+
     if [ "x${target}" = "x/" ]; then
+        if [ "x${device}" != "x" ]; then
+            devices="${devices:+"${devices} "}${device}"
+            parent=$(blkdev_contains "${device}")
+
+            if [ "x${parent}" = "x" ]; then
+                log_warning_msg "${progname}: failed to get block device containing '${device}'"
+            else
+                devices="${devices} ${parent}"
+            fi
+        fi
+
         echo "#${entry}"
         continue
-    fi
+	fi
 
     if [ "x${fstype}" = "xswap" ]; then
         if [ "x${lockroot_swap}" != "xon" ]; then
             echo "#${entry}"
+
+            if [ "x${device}" != "x" ]; then
+                devices="${devices:+"${devices} "}${device}"
+            fi
         else
             echo "${entry}"
-        fi
+
+        continue
     fi
 
-    while [ "x${source}" != "x" ]; do       
-	    for device in ${lockroot_lock}; do
-		    if [ "x${device}" = "x${source}" ]; then
-		        mntopts=$(echo "${mntopts}" | sed 's/\(rw,\)\|\(,rw\)\|\(^rw$\)//')
-		        if [ "x${mntopts}" != "x" ]; then
-		            mntopts="ro,${mntopts}"
-		        else
-		            mntopts="ro"
-		        fi
-		    fi
-	    done
+    for mount in ${lockroot_lock}; do
+	    if [ "x${mount}" = "x${target}" ]; then
+	        mntopts=$(echo "${mntopts}" | sed 's/\(rw,\)\|\(,rw\)\|\(^rw$\)//')
+	        mntopts="ro${mntopts:+",${mntopts}"}"
+	    fi
 
-        source=$(try_blkid "${source}")               
-    done
+        if [ "x${device}" != "x" ]; then
+            devices="${devices:+"${devices} "}${device}"
+        fi
+    done            
 done > ${fstab_overlay}
 
 mount --move ${ovl_mount} ${rootmnt} || mount -o move ${ovl_mount} ${rootmnt}
