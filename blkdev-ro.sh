@@ -35,6 +35,8 @@ do
 			blkdev=$(blkid -U "${bdev#UUID=}") ;;
 		LABEL=*)
 			blkdev=$(blkid -L "${bdev#LABEL=}") ;;
+		/*)
+			blkdev=${bdev} : ;;
 		*)
 			blkdev=${udevdir}/${bdev} : ;;
 	esac
@@ -42,6 +44,12 @@ do
 	if [ ${?} -ne 0 ]
 	then
 		log_warning_msg "${progname}: failed to get block device for '${bdev}'"
+		continue
+	fi
+
+	if ! [ -e "${blkdev}" ]
+	then
+		log_warning_msg "${progname}: '${blkdev}' does not exist"
 		continue
 	fi
 
