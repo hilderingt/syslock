@@ -25,7 +25,7 @@ do
 	parent=""
 	case "${bdev}" in
 		parent=*)
-			parent="true"
+			parent="y"
 			bdev=${bdev#parent=} ;;
 	esac
 
@@ -51,7 +51,7 @@ do
 		continue
 	fi
 
-	if [ "x${parent}" = "xtrue" ]
+	if [ "x${parent}" = "xy" ]
 	then
 		parent=""
 
@@ -71,7 +71,7 @@ do
 		blkdev=${parent:+"${udevdir}/${parent}"}
 	fi
 
-	[ "x${blkdev}" != "x" ] && echo blockdev --setro "${blkdev}"
+	[ "x${blkdev}" != "x" ] && blockdev --setro "${blkdev}"
 	if [ ${?} -ne 0 ]
 	then
 		log_warning_msg "${progname}: failed to set '${blkdev}' read-only"
