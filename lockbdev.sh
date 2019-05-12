@@ -1,8 +1,12 @@
 #!/bin/sh
 
-tag="bdev-ro"
+tag="lockbdev"
+conf_file="${rootmnt}/etc/lockbdev.conf"
+list_ignore=""
+list_lock=""
 udev_dir="/dev"
-bdev_list=""
+optval=""
+bdev=""
 
 case "${1}" in
 	prereqs)
@@ -10,22 +14,48 @@ case "${1}" in
 		exit 0 ;;
 esac
 
-. scripts/functions
+. /usr/share/initramfs-tools/scripts/functions
 
-for param in $(cat /proc/cmdline)
+for opt in $(cat /proc/cmdline)
 do
-	case "${param}" in
-		bdev-ro=*)
-			bdev_list=${param#bdev-ro=} ;;
+	case "${opt}" in
+		lockbdev=*)
+			optval=${opt#lockbdev=} ;;
 	esac
 done
 
-if [ "x${bdev_list}" = "x" ]
+if ! [ "x${optval}" = "x" ]
 then
-	exit 0
+	for bdev in $(IFS=','; echo ${optval})
+	do
+		case "${bdev}" in
+			-*)
+				list_ignore=${list_ignore:+"${list_ignore} "}${bdev#-} ;;
+			*)
+				list_lock=${list_lock:+"${list_lock} "}${bdev} ;;
+		esac
+	done
 fi
 
-for blkdev in $(IFS=','; echo ${bdev_list})
+if [ -f "${conf_file}" ]
+then
+	while IFS= read -r bdev
+	do
+		for blkdev in ${list_ignore}
+		do
+			case "${blkdev}" in
+				${bdev})
+					continue 2 ;;
+			esac
+		done
+ 
+		list_lock=${list_lock:+"${list_lock} "}${bdev}
+	done <<-EOF
+	$(grep -v '^[[:blank:]]*\(#\|$\)' "${conf_file}")
+	EOF
+fi
+
+for blkdev in ${list_lock}
 do
 	bdev_disk=""
 	case "${blkdev}" in
@@ -84,7 +114,7 @@ do
 		bdev=${bdev_disk:+"${udev_dir}/${bdev_disk}"}
 	fi
 
-	[ "x${bdev}" != "x" ] && blockdev --setro "${bdev}"
+	[ "x${bdev}" != "x" ] && echo blockdev --setro "${bdev}"
 	if [ ${?} -ne 0 ]
 	then
 		log_warning_msg "${tag}: failed to set '${bdev}' read-only"
