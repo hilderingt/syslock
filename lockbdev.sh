@@ -5,15 +5,12 @@ log_tag="lockbdev"
 udev_dir="/dev"
 list_ignore=""
 list_lock=""
-bdev_disk=""
 optval=""
-blkdev=""
 bdev=""
-opt=""
 
 parse_bdev()
 {
-	local dev_dir="" bdev_disk="" blkid_opt=""
+	local blkid="" blkid_opt="" dev_dir="" bdev_disk=""
 
 	bdev=${1}
 
@@ -26,11 +23,11 @@ parse_bdev()
 
 	case "${bdev}" in
 		UUID=*)
-			bdev=${bdev#UUID=}
+			blkid=${bdev#UUID=}
 			blkid_opt="-U" 
 			;;
 		LABEL=*)
-			bdev=${bdev#LABEL=}
+			blkid=${bdev#LABEL=}
 			blkid_opt="-L" 
 			;;
 		/*)
@@ -43,11 +40,11 @@ parse_bdev()
 
 	case "${blkid_opt}" in
 		-L | -U)
-			bdev=$(blkid ${blkid_opt} ${bdev})
+			bdev=$(blkid ${blkid_opt} "${blkid}")
 
 			if [ ${?} -ne 0 ]
 			then
-				log_warning_msg "${log_tag}: failed to get block device for '${bdev}'" 1>&2
+				log_warning_msg "${log_tag}: failed to get block device for '${blkid}'" 1>&2
 			fi
 			;;
 	esac
@@ -75,6 +72,7 @@ parse_bdev()
 								log_warning_msg "${log_tag}: '${bdev_disk}' is not a block device" 1>&2
 							fi
 
+							bdev_disk=""
 							continue
 						fi
 
@@ -117,7 +115,6 @@ if ! [ "x${optval}" = "x" ]
 then
 	for bdev in $(IFS=','; echo ${optval})
 	do
-		ignore=""
 		case "${bdev}" in
 			-*)
 				bdev=${bdev#-}
@@ -131,9 +128,10 @@ then
 		then
 			if [ "x${ignore}" = "xy" ]
 			then
-				list_ignore=${list_ignore:+"${list_ignpore} "}${bdev}
+				list_ignore="${list_ignore:+"${list_ignpore} "}${bdev}"
+				ignore=""
 			else
-				list_lock=${list_lock:+"${list_lock} "}${bdev}
+				list_lock="${list_lock:+"${list_lock} "}${bdev}"
 			fi
 		fi
 	done
@@ -147,7 +145,7 @@ then
 
 		if ! [ "x${bdev}" = "x" ]
 		then
-			list_lock=${list_lock:+"${list_lock} "}${bdev}
+			list_lock="${list_lock:+"${list_lock} "}${bdev}"
 		fi
 	done <<-EOF
 	$(grep -v '^[[:blank:]]*\(#\|$\)' "${conf_file}")
