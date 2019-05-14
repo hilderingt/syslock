@@ -9,7 +9,7 @@ optval=""
 
 list_add_bdev()
 {
-	local bdev=${1} bdevdisk="" blkdev="" blkid="" blkidopt="" devdir="" ignore=""
+	local bdev=${1} bdev_disk="" blkdev="" blkid="" blkid_opt="" devdir="" ignore=""
 
 	case "${bdev}" in
 		-*)
@@ -20,20 +20,16 @@ list_add_bdev()
 	
 	case "${bdev}" in
 		disk=*)
-			bdev=${bdev#disk=}
-			bdevdisk="y"
+			bdev=${bdev#*=}
+			bdev_disk="y"
 			;;
 	esac
 
 	case "${bdev}" in
 		UUID=*)
-			blkid=${bdev#UUID=}
-			blkidopt="-U" 
-			;;
+			blkid_opt="-U" ;;
 		LABEL=*)
-			blkid=${bdev#LABEL=}
-			blkidopt="-L" 
-			;;
+			blkid_opt="-L" ;;
 		/*)
 			devdir="${bdev%/*}"
 			bdev="${bdev##*/}"
@@ -42,9 +38,10 @@ list_add_bdev()
 			devdir="${udevdir}" ;;
 	esac
 
-	case "${blkidopt}" in
+	case "${blkid_opt}" in
 		-L | -U)
-			bdev=$(blkid ${blkidopt} "${blkid}")
+			blkid=${bdev}
+			bdev=$(blkid ${blkid_opt} "${blkid#*=}")
 
 			if [ ${?} -ne 0 ]
 			then
@@ -54,7 +51,7 @@ list_add_bdev()
 			;;
 	esac
 
-	if [ "x${bdevdisk}" = "xy" ]
+	if [ "x${bdev_disk}" = "xy" ]
 	then
 		for blkdev in $(cd /sys/block; echo *)
 		do
@@ -64,17 +61,17 @@ list_add_bdev()
 						continue
 					fi
 
-					bdevdisk="${devdir}/${blkdev}"
+					bdev_disk="${devdir}/${blkdev}"
 
-					if ! [ -b "${bdevdisk}" ]
-						if ! [ -e "${bdevdisk}" ]
+					if ! [ -b "${bdev_disk}" ]
+						if ! [ -e "${bdev_disk}" ]
 						then
-							log_warning_msg "${logtag}: block device '${bdevdisk}' does not exist"
+							log_warning_msg "${logtag}: block device '${bdev_disk}' does not exist"
 						else
-							log_warning_msg "${logtag}: '${bdevdisk}' is not a block device"
+							log_warning_msg "${logtag}: '${bdev_disk}' is not a block device"
 						fi
 
-						bdevdisk=""
+						bdev_disk=""
 						continue
 					fi
 
@@ -83,13 +80,13 @@ list_add_bdev()
 			esac
 		done
 
-		if [ "x${bdevdisk}" = "x" ]
+		if [ "x${bdev_disk}" = "x" ]
 		then
-			log_warning_msg "${logtag}: failed to get block device containing '${devdir}/${bdev}'"
+			log_warning_msg "${logtag}: failed to get parent block device of '${devdir}/${bdev}'"
 			return
 		fi
 
-		bdev=${bdevdisk}
+		bdev=${bdev_disk}
 	else
 		if [ "x${blkid}" = "x" ]
 		then
@@ -111,7 +108,8 @@ list_add_bdev()
 case "${1}" in
 	prereqs)
 		echo ""
-		exit 0 ;;
+		exit 0
+		;;
 esac
 
 . scripts/functions
@@ -120,7 +118,7 @@ for opt in $(cat /proc/cmdline)
 do
 	case "${opt}" in
 		lockbdev=*)
-			optval=${opt#lockbdev=} ;;
+			optval=${opt#*=} ;;
 	esac
 done
 
