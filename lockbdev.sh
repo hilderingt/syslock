@@ -56,31 +56,38 @@ parse_bdev()
 	then
 		if [ "x${bdev_disk}" = "xy" ]
 		then
+			bdev_disk=""
 			for blkdev in $(cd /sys/block; echo *)
 			do
 				case "${bdev}" in
 					${blkdev}*)
-						if [ -d "/sys/block/${blkdev}/${bdev}" ]
-						then 
-							bdev_disk="${dev_dir}/${blkdev}"
-						else
+						if ! [ -d "/sys/block/${blkdev}/${bdev}" ]
 							continue
 						fi
 
-						if [ -b "${bdev_disk}" ]
-						then
-							bdev=${bdev_disk}
-						else
+						bdev_disk="${dev_dir}/${blkdev}"
+
+						if ! [ -b "${bdev_disk}" ]
 							if ! [ -e "${bdev_disk}" ]
 							then
 								log_warning_msg "${log_tag}: block device '${bdev_disk}' does not exist" 1>&2
 							else
 								log_warning_msg "${log_tag}: '${bdev_disk}' is not a block device" 1>&2
 							fi
+
+							continue
 						fi
+
+						bdev=${bdev_disk}
+						break
 						;;
 				esac
 			done
+
+			if [ "x${bdev_disk}" = "x" ]
+			then
+				log_warning_msg "${log_tag}: failed to get block device containing '${dev_dir}/${bdev}'" 1>&2
+			fi
 		elif [ "x${blkid_opt}" = "x" ]
 		then
 			bdev=$(echo "${dev_dir}/${bdev}")
