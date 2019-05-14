@@ -1,98 +1,111 @@
 #!/bin/sh
 
-conf_file="${rootmnt}/etc/lockbdev.conf"
-log_tag="lockbdev"
-udev_dir="/dev"
-list_ignore=""
-list_lock=""
+config="${rootmnt}/etc/lockbdev.conf"
+logtag="lockbdev"
+udevdir="/dev"
+blacklist=""
+whitelist=""
 optval=""
-bdev=""
 
-parse_bdev()
+list_add_bdev()
 {
-	local blkid="" blkid_opt="" dev_dir="" bdev_disk=""
+	local bdev=${1} bdevdisk="" blkdev="" blkid="" blkidopt="" devdir="" ignore=""
 
-	bdev=${1}
-
+	case "${bdev}" in
+		-*)
+			bdev=${bdev#-}
+			ignore="y" 
+			;;
+	esac
+	
 	case "${bdev}" in
 		disk=*)
 			bdev=${bdev#disk=}
-			bdev_disk="y"
+			bdevdisk="y"
 			;;
 	esac
 
 	case "${bdev}" in
 		UUID=*)
 			blkid=${bdev#UUID=}
-			blkid_opt="-U" 
+			blkidopt="-U" 
 			;;
 		LABEL=*)
 			blkid=${bdev#LABEL=}
-			blkid_opt="-L" 
+			blkidopt="-L" 
 			;;
 		/*)
-			dev_dir="${bdev%/*}"
+			devdir="${bdev%/*}"
 			bdev="${bdev##*/}"
 			;;
 		*)
-			dev_dir="${udev_dir}" ;;
+			devdir="${udevdir}" ;;
 	esac
 
-	case "${blkid_opt}" in
+	case "${blkidopt}" in
 		-L | -U)
-			bdev=$(blkid ${blkid_opt} "${blkid}")
+			bdev=$(blkid ${blkidopt} "${blkid}")
 
 			if [ ${?} -ne 0 ]
 			then
-				log_warning_msg "${log_tag}: failed to get block device for '${blkid}'" 1>&2
+				log_warning_msg "${logtag}: failed to get block device for '${blkid}'"
+				return
 			fi
 			;;
 	esac
 
-	if ! [ "x${bdev}" = "x" ]
+	if [ "x${bdevdisk}" = "xy" ]
 	then
-		if [ "x${bdev_disk}" = "xy" ]
-		then
-			bdev_disk=""
-			for blkdev in $(cd /sys/block; echo *)
-			do
-				case "${bdev}" in
-					${blkdev}*)
-						if ! [ -d "/sys/block/${blkdev}/${bdev}" ]
-							continue
+		for blkdev in $(cd /sys/block; echo *)
+		do
+			case "${bdev}" in
+				${blkdev}*)
+					if ! [ -d "/sys/block/${blkdev}/${bdev}" ]
+						continue
+					fi
+
+					bdevdisk="${devdir}/${blkdev}"
+
+					if ! [ -b "${bdevdisk}" ]
+						if ! [ -e "${bdevdisk}" ]
+						then
+							log_warning_msg "${logtag}: block device '${bdevdisk}' does not exist"
+						else
+							log_warning_msg "${logtag}: '${bdevdisk}' is not a block device"
 						fi
 
-						bdev_disk="${dev_dir}/${blkdev}"
+						bdevdisk=""
+						continue
+					fi
 
-						if ! [ -b "${bdev_disk}" ]
-							if ! [ -e "${bdev_disk}" ]
-							then
-								log_warning_msg "${log_tag}: block device '${bdev_disk}' does not exist" 1>&2
-							else
-								log_warning_msg "${log_tag}: '${bdev_disk}' is not a block device" 1>&2
-							fi
+					break
+					;;
+			esac
+		done
 
-							bdev_disk=""
-							continue
-						fi
-
-						bdev=${bdev_disk}
-						break
-						;;
-				esac
-			done
-
-			if [ "x${bdev_disk}" = "x" ]
-			then
-				log_warning_msg "${log_tag}: failed to get block device containing '${dev_dir}/${bdev}'" 1>&2
-			fi
-		elif [ "x${blkid_opt}" = "x" ]
+		if [ "x${bdevdisk}" = "x" ]
 		then
-			bdev=$(echo "${dev_dir}/${bdev}")
+			log_warning_msg "${logtag}: failed to get block device containing '${devdir}/${bdev}'"
+			return
+		fi
+
+		bdev=${bdevdisk}
+	else
+		if [ "x${blkid}" = "x" ]
+		then
+			bdev=$(echo "${devdir}/${bdev}")
 		fi
 	fi
 
-	echo "${bdev}"
+	if ! [ "x${bdev}" = "x" ]
+	then
+		if [ "x${ignore}" = "xy" ]
+		then
+			blacklist="${blacklist:+"${list_ignpore} "}${bdev}"
+		else
+			whitelist="${whitelist:+"${whitelist} "}${bdev}"
+		fi
+	fi
 }
 
 case "${1}" in
@@ -114,47 +127,22 @@ done
 if ! [ "x${optval}" = "x" ]
 then
 	for bdev in $(IFS=','; echo ${optval})
-	do
-		case "${bdev}" in
-			-*)
-				bdev=${bdev#-}
-				ignore="y" 
-				;;
-		esac
-
-		bdev=$(parse_bdev "${bdev}")
-
-		if ! [ "x${bdev}" = "x" ]
-		then
-			if [ "x${ignore}" = "xy" ]
-			then
-				list_ignore="${list_ignore:+"${list_ignpore} "}${bdev}"
-				ignore=""
-			else
-				list_lock="${list_lock:+"${list_lock} "}${bdev}"
-			fi
-		fi
+	do list_add_bdev "${bdev}"
 	done
 fi
 
-if [ -f "${conf_file}" ]
+if [ -f "${config}" ]
 then
 	while IFS= read -r bdev
-	do
-		bdev=$(parse_bdev "${bdev}")
-
-		if ! [ "x${bdev}" = "x" ]
-		then
-			list_lock="${list_lock:+"${list_lock} "}${bdev}"
-		fi
+	do list_add_bdev "${bdev}"
 	done <<-EOF
-	$(grep -v '^[[:blank:]]*\(#\|$\)' "${conf_file}")
+	$(grep -v '^[[:blank:]]*\(#\|$\)' "${config}")
 	EOF
 fi
 
-for bdev in ${list_lock}
+for bdev in ${whitelist}
 do
-	for blkdev in ${list_ignore}
+	for blkdev in ${blacklist}
 	do
 		case "${bdev}" in
 			${blkdev})
@@ -164,7 +152,7 @@ do
 
 	if ! blockdev --setro "${bdev}"
 	then
-		log_warning_msg "${log_tag}: failed to set '${bdev}' read-only" 1>&2
+		log_warning_msg "${logtag}: failed to set '${bdev}' read-only"
 		continue
 	fi
 done
