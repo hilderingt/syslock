@@ -101,7 +101,7 @@ list_add_bdev()
 	then
 		if [ "x${ignore}" = "xy" ]
 		then
-			blacklist="${blacklist:+"${list_ignpore} "}${bdev}"
+			blacklist="${blacklist:+"${blacklist} "}${bdev}"
 		else
 			whitelist="${whitelist:+"${whitelist} "}${bdev}"
 		fi
