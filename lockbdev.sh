@@ -9,7 +9,7 @@ optval=""
 
 list_add_bdev()
 {
-	local bdev=${1} bdev_disk="" blkdev="" blkid="" blkid_opt="" devdir="" ignore=""
+	local bdev=${1} _bdev="" bdev_disk="" blkid="" blkid_opt="" devdir="" ignore=""
 
 	case "${bdev}" in
 		-*)
@@ -53,15 +53,15 @@ list_add_bdev()
 
 	if [ "x${bdev_disk}" = "xy" ]
 	then
-		for blkdev in $(cd /sys/block; echo *)
+		for _bdev in $(cd /sys/block; echo *)
 		do
 			case "${bdev}" in
-				${blkdev}*)
-					if ! [ -d "/sys/block/${blkdev}/${bdev}" ]
+				${_bdev}*)
+					if ! [ -d "/sys/block/${_bdev}/${bdev}" ]
 						continue
 					fi
 
-					bdev_disk="${devdir}/${blkdev}"
+					bdev_disk="${devdir}/${_bdev}"
 
 					if ! [ -b "${bdev_disk}" ]
 						if ! [ -e "${bdev_disk}" ]
@@ -134,16 +134,16 @@ then
 	while IFS= read -r bdev
 	do list_add_bdev "${bdev}"
 	done <<-EOF
-	$(grep -v '^[[:blank:]]*\(#\|$\)' "${config}")
+	$(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^[[:blank:]]\+//;s/[[:blank:]]\+$//' "${config}")
 	EOF
 fi
 
 for bdev in ${whitelist}
 do
-	for blkdev in ${blacklist}
+	for _bdev in ${blacklist}
 	do
 		case "${bdev}" in
-			${blkdev})
+			${_bdev})
 				continue 2 ;;
 		esac
 	done
