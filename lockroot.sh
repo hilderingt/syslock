@@ -3,56 +3,59 @@
 recover_rootmnt()
 {
     mount --move ${1} ${rootmnt} || mount -o move ${1} ${rootmnt}
-    if [ ${?} -ne 0 ]; then
+    if [ ${?} -ne 0 ]
+	then
        panic "${progname}: failed to recover root filesystem to '${rootmnt}'"
     fi
 }
 
 may_translate_blkid()
 {
-    local blkdev
+    local bdev
 
     case "${1}" in
         UUID=*)
-            blkdev=$(blkid -U "${1#UUID=}") ;;
+            bdev=$(blkid -U "${1#UUID=}") ;;
         LABEL=*)
-            blkdev=$(blkid -L "${1#LABEL=}") ;;
+            bdev=$(blkid -L "${1#LABEL=}") ;;
         *)
-            blkdev=${1}
-            true ;;
+            bdev=${1} : ;;
     esac
 
-    echo -n "${blkdev}"
+    echo "${bdev}"
     return ${?}
 }
 
-blkdev_contains()
+bdev_contains()
 {
-    local parent="" part=${1##*/} devdir=${1%/*}
+    local bdev_disk="" bdev_part=${1##*/} devdir=${1%/*}
 
-    for bdev in $(cd /sys/block && echo *); do
-        case "${part}" in
+    for bdev in $(cd /sys/block; echo *)
+	do
+        case "${bdev_part}" in
             ${bdev}*)
-                parent=${bdev} ;;
+                bdev_disk=${bdev} ;;
             *)
                 continue ;;
         esac
 
-        if ! [ \( -d "/sys/block/${parent}/${part}" -o "x${parent}" = "x${part}" \) -a -b "${devdir}/${parent}" ]; then
-            parent=""
+        if ! [ \( -d "/sys/block/${bdev_disk}/${bdev_part}" -o "x${bdev_disk}" = "x${bdev_part}" \) -a -b "${devdir}/${bdev_disk}" ]
+		then
+            bdev_disk=""
         else
             break
         fi
     done
 
-    echo -n "${parent}"               
+    echo "${bdev_disk}"               
 }
 
-lock_blkdev()
+lock_bdev()
 {
-    local blkdev
+    local bdev
 
-    if [ "x${blkdev}" != "x" ] && ! blockdev --setro "${blkdev}"; then
+    if [ "x${bdev}" != "x" ] && ! blockdev --setro "${blkdev}"
+	then
         log_warning_msg "${progname}: failed to set device '${blkdev}' read-only"
         return 2
     fi
@@ -63,7 +66,8 @@ lock_blkdev()
 case "$1" in
     prereqs)
     	echo ""
-    	exit 0 ;;
+    	exit 0 
+		;;
 esac
 
 . /scripts/functions
@@ -73,25 +77,30 @@ config_file="${rootmnt}/etc/lockroot.conf"
 nolock_file="${rootmnt}/nolock"
 
 nolock=
-for param in $(cat /proc/cmdline); do
+for param in $(cat /proc/cmdline)
+do
     case ${param} in
         nolock)
             nolock=true ;;
     esac
 done
 
-if [ "x${nolock}" = "xtrue" ]; then
+if [ "x${nolock}" = "xtrue" ]
+then
     log_warning_msg "${progname}: disabled, found kernel boot parameter 'nolock'"
     exit 0
 fi
 
-if [ -e "${nolock_file}" ]; then
+if [ -e "${nolock_file}" ]
+then
     log_warning_msg "${progname}: disabled, found file '${nolock_file}'"
     exit 0
 fi
 
-if [ -e "${config_file}" ]; then
-    while IFS= read -r line; do
+if [ -e "${config_file}" ]
+then
+    while IFS= read -r line
+	do
         case "x$(echo ${line})" in
             x | x\#*)
                 continue ;;
@@ -99,9 +108,11 @@ if [ -e "${config_file}" ]; then
 
         case "${line}" in
             LOCKROOT_SWAP=*)
-                lockroot_swap=${line#LOCKROOT_SWAP=} ;;
-            LOCKROOT_LOCK=*)
-                lockroot_lock=$(IFS=','; echo ${line#LOCKROOT_LOCK=}) ;;
+                lockroot_swap=${line#*=} ;;
+            LOCKROOT_LOCKFS=*)
+                lockroot_lockfs=$(IFS=','; echo ${line#*=}) ;;
+			LOCKROOT_LOCKBDEV=*)
+				lockroot_lockbd=$(IFS=','; echo ${line#*=}) ;;
             *=*)
                 echo "${progname}: unknown configuration paramter '${line%=*}'" ;;
             *)
@@ -117,64 +128,74 @@ ovl_lower=${ovl_base}/ro
 ovl_work=${ovl_base}/.work
 
 [ -d ${ovl_base} ] || mkdir -p ${ovl_base}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create '${ovl_base}'"
     exit 0
 fi
 
 mount -t tmpfs tmpfs-root ${ovl_base}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create tmpfs for root filesystem"
     exit 0
 fi
 
 [ -d ${ovl_upper} ] || mkdir -p ${ovl_upper}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create '${ovl_upper}'"
     exit 0
 fi
 
 [ -d ${ovl_lower} ] || mkdir -p ${ovl_lower}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create '${ovl_lower}'"
     exit 0
 fi
 
 [ -d ${ovl_work} ] || mkdir -p ${ovl_work}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create '${ovl_work}'"
     exit 0
 fi
 
 mount --move ${rootmnt} ${ovl_lower} || mount -o move ${rootmnt} ${ovl_lower}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to move root filesystem from '${rootmnt}' to '${ovl_lower}'"
     exit 0
 fi
 
 [ -d ${ovl_mount} ] || mkdir -p ${ovl_mount}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create '${ovl_mount}'"
     recover_rootmnt "${ovl_lower}"
     exit 0
 fi
 
 mount -t overlay -o lowerdir=${ovl_lower},upperdir=${ovl_upper},workdir=${ovl_work} overlay-root ${ovl_mount}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create overlay for root filesystem"
     recover_rootmnt "${ovl_lower}"
     exit 0
 fi
 
 [ -d ${ovl_mount}${ovl_base} ] || mkdir -p ${ovl_mount}${ovl_base}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to create '${ovl_mount}${ovl_base}'"
     recover_rootmnt "${ovl_lower}"
     exit 0
 fi
 
 mount --move ${ovl_base} ${ovl_mount}${ovl_base} || mount -o move ${ovl_base} ${ovl_mount}${ovl_base}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to move '${ovl_base}' to '${ovl_mount}${ovl_base}'"
     recover_rootmnt "${ovl_lower}"
     exit 0
@@ -189,26 +210,29 @@ cat <<EOF >${fstab_overlay}
 #
 EOF
 
-devices=
-device=
-parent=
-
 grep -v '^[[:blank:]]*\(#\|$\)' ${fstab_system} |
-while IFS= read -r entry; do
-    echo "${entry}" | read -r source target fstype mntopts
+while IFS= read -r entry
+do
+    read -r src dst fs opts <<-EOF
+							echo "${entry}"
+							EOF
 
-    device=$(may_translate_blkid "${source}")
-    if [ ${?} -ne 0 ]; then
+    bdev=$(may_translate_blkid "${src}")
+    if [ ${?} -ne 0 ]
+	then
         log_warning_msg "${progname}: failed to translate uuid/label to block device"
     fi  
 
-    if [ "x${target}" = "x/" ]; then
-        if [ "x${device}" != "x" ]; then
-            devices="${devices:+"${devices} "}${device}"
-            parent=$(blkdev_contains "${device}")
+    if [ "x${dst}" = "x/" ]
+	then
+        if ! [ "x${bdev}" = "x" ]
+		then
+			bdev_root=${bdev}
+            bdev_disk=$(blkdev_contains "${bdev_root}")
 
-            if [ "x${parent}" = "x" ]; then
-                log_warning_msg "${progname}: failed to get block device containing '${device}'"
+            if [ "x${bdev_disk}" = "x" ]
+			then
+                log_warning_msg "${progname}: failed to get block device containing '${bdev_root}'"
             else
                 devices="${devices} ${parent}"
             fi
@@ -218,11 +242,14 @@ while IFS= read -r entry; do
         continue
 	fi
 
-    if [ "x${fstype}" = "xswap" ]; then
-        if [ "x${lockroot_swap}" != "xon" ]; then
+    if [ "x${fs}" = "xswap" ]
+	then
+        if [ "x${lockroot_swap}" != "xtrue" ]
+		then
             echo "#${entry}"
 
-            if [ "x${device}" != "x" ]; then
+            if [ "x${bdev}" != "x" ]
+			then
                 devices="${devices:+"${devices} "}${device}"
             fi
         else
@@ -231,20 +258,24 @@ while IFS= read -r entry; do
         continue
     fi
 
-    for mount in ${lockroot_lock}; do
-	    if [ "x${mount}" = "x${target}" ]; then
+    for mount in ${lockroot_lock}
+	do
+	    if [ "x${mount}" = "x${target}" ]
+		then
 	        mntopts=$(echo "${mntopts}" | sed 's/\(rw,\)\|\(,rw\)\|\(^rw$\)//')
 	        mntopts="ro${mntopts:+",${mntopts}"}"
 	    fi
 
-        if [ "x${device}" != "x" ]; then
+        if [ "x${device}" != "x" ]
+		then
             devices="${devices:+"${devices} "}${device}"
         fi
     done            
 done > ${fstab_overlay}
 
 mount --move ${ovl_mount} ${rootmnt} || mount -o move ${ovl_mount} ${rootmnt}
-if [ ${?} -ne 0 ]; then
+if [ ${?} -ne 0 ]
+then
     log_failure_msg "${progname}: failed to move '${ovl_mount}' to '${rootmnt}'"
     recover_rootmnt "${ovl_mount}${ovl_lower}"
     exit 0

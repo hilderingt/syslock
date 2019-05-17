@@ -57,7 +57,7 @@ list_add_bdev()
 		do
 			case "${bdev}" in
 				${_bdev}*)
-					if ! [ -d "/sys/block/${_bdev}/${bdev}" ]
+					if ! [ -d "/sys/block/${_bdev}/${bdev}" -o "x${bdev}" != "x${_bdev}" ]
 						continue
 					fi
 
@@ -98,8 +98,24 @@ list_add_bdev()
 	then
 		if [ "x${ignore}" = "xy" ]
 		then
+			for _bdev in ${blacklist}
+			do
+				case "${bdev}" in
+					${_bdev})
+						return ;;
+				esac
+			done
+
 			blacklist="${blacklist:+"${blacklist} "}${bdev}"
 		else
+			for _bdev in ${whitelist}
+			do
+				case "${bdev}" in
+					${_bdev})
+						return ;;
+				esac
+			done
+
 			whitelist="${whitelist:+"${whitelist} "}${bdev}"
 		fi
 	fi
