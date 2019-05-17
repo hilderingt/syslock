@@ -1,11 +1,62 @@
 #!/bin/sh
 
 config="${rootmnt}/etc/lockbdev.conf"
-logtag="lockbdev"
+mytag="lockbdev"
 udevdir="/dev"
 blacklist=""
 whitelist=""
 optval=""
+
+bdev_contains()
+{
+	local bdev=${1} _bdev=""
+
+	for _bdev in $(cd /sys/block; echo *)
+	do
+		case "${bdev}" in
+			${_bdev}*)
+				if ! [ -d "/sys/block/${_bdev}/${bdev}" -o "x${bdev}" != "x${_bdev}" ]
+				then
+					continue
+				fi
+
+				bdev_disk="${devdir}/${_bdev}"
+
+				if ! [ -b "${bdev_disk}" ]
+				then
+					if ! [ -e "${bdev_disk}" ]
+					then
+						log_warning_msg "${mytag}: block device '${bdev_disk}' does not exist"
+					else
+						log_warning_msg "${mytag}: '${bdev_disk}' is not a block device"
+					fi
+
+					bdev_disk=""
+					continue
+				fi
+
+				echo "${bdev_disk}"
+				;;
+		esac
+	done
+
+	echo ""
+}
+
+list_contains()
+{
+	local bdev="" _bdev=${1} bdev_list="${2}"
+
+	for bdev in ${bdev_list}
+	do
+		case "${bdev}" in
+			${_bdev})
+				return 0 ;;
+		esac
+	done
+
+	return 1
+}
 
 list_add_bdev()
 {
@@ -45,7 +96,7 @@ list_add_bdev()
 
 			if [ ${?} -ne 0 ]
 			then
-				log_warning_msg "${logtag}: failed to get block device for '${blkid}'"
+				log_warning_msg "${mytag}: failed to get block device for '${blkid}'"
 				return
 			fi
 			;;
@@ -53,36 +104,11 @@ list_add_bdev()
 
 	if [ "x${bdev_disk}" = "xy" ]
 	then
-		for _bdev in $(cd /sys/block; echo *)
-		do
-			case "${bdev}" in
-				${_bdev}*)
-					if ! [ -d "/sys/block/${_bdev}/${bdev}" -o "x${bdev}" != "x${_bdev}" ]
-						continue
-					fi
-
-					bdev_disk="${devdir}/${_bdev}"
-
-					if ! [ -b "${bdev_disk}" ]
-						if ! [ -e "${bdev_disk}" ]
-						then
-							log_warning_msg "${logtag}: block device '${bdev_disk}' does not exist"
-						else
-							log_warning_msg "${logtag}: '${bdev_disk}' is not a block device"
-						fi
-
-						bdev_disk=""
-						continue
-					fi
-
-					break
-					;;
-			esac
-		done
+		bdev_disk=$(bdev_contains "${bdev}")
 
 		if [ "x${bdev_disk}" = "x" ]
 		then
-			log_warning_msg "${logtag}: failed to get parent block device of '${devdir}/${bdev}'"
+			log_warning_msg "${mytag}: failed to get parent block device of '${devdir}/${bdev}'"
 			return
 		fi
 
@@ -98,25 +124,15 @@ list_add_bdev()
 	then
 		if [ "x${ignore}" = "xy" ]
 		then
-			for _bdev in ${blacklist}
-			do
-				case "${bdev}" in
-					${_bdev})
-						return ;;
-				esac
-			done
-
-			blacklist="${blacklist:+"${blacklist} "}${bdev}"
+			if ! list_contains "${bdev}" "${blacklist}"
+			then
+				blacklist="${blacklist:+"${blacklist} "}${bdev}"
+			fi
 		else
-			for _bdev in ${whitelist}
-			do
-				case "${bdev}" in
-					${_bdev})
-						return ;;
-				esac
-			done
-
-			whitelist="${whitelist:+"${whitelist} "}${bdev}"
+			if ! list_contains "${bdev}" "${whitelist}"
+			then
+				whitelist="${whitelist:+"${whitelist} "}${bdev}"
+			fi
 		fi
 	fi
 }
@@ -128,9 +144,9 @@ case "${1}" in
 		;;
 esac
 
-. scripts/functions
+. /scripts/functions
 
-for opt in $(cat /proc/cmdline)
+for opt in "lockbdev=/dev/sda,sda1,sda2,-sda2" #$(cat /proc/cmdline)
 do
 	case "${opt}" in
 		lockbdev=*)
@@ -156,17 +172,14 @@ fi
 
 for bdev in ${whitelist}
 do
-	for _bdev in ${blacklist}
-	do
-		case "${bdev}" in
-			${_bdev})
-				continue 2 ;;
-		esac
-	done
+	if list_contains "${bdev}" "${blacklist}"
+	then
+		continue 2
+	fi
 
 	if ! blockdev --setro "${bdev}"
 	then
-		log_warning_msg "${logtag}: failed to set '${bdev}' read-only"
+		log_warning_msg "${mytag}: failed to set '${bdev}' read-only"
 		continue
 	fi
 done
