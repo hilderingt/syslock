@@ -15,9 +15,9 @@ may_translate_blkid()
 
     case "${1}" in
         UUID=*)
-            bdev=$(blkid -U "${1#UUID=}") ;;
+            bdev=$(blkid -U "${1#*=}") ;;
         LABEL=*)
-            bdev=$(blkid -L "${1#LABEL=}") ;;
+            bdev=$(blkid -L "${1#*=}") ;;
         *)
             bdev=${1} : ;;
     esac

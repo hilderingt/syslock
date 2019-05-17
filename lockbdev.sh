@@ -9,7 +9,10 @@ optval=""
 
 bdev_contains()
 {
-	local bdev=${1} _bdev=""
+	local bdev=${1} _bdev="" bdev_disk="" devdir=""
+
+	devdir=${bdev%/*}
+	bdev=${bdev##*/}
 
 	for _bdev in $(cd /sys/block; echo *)
 	do
@@ -146,7 +149,7 @@ esac
 
 . /scripts/functions
 
-for opt in "lockbdev=/dev/sda,sda1,sda2,-sda2" #$(cat /proc/cmdline)
+for opt in h$(cat /proc/cmdline)
 do
 	case "${opt}" in
 		lockbdev=*)
