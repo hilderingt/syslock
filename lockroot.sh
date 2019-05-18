@@ -51,21 +51,6 @@ bdev_contains()
     echo "${bdev_disk}"
 }
 
-list_contains()
-{
-	local bdev=${1} _bdev="" bdev_list=${2}
-
-	for _bdev in ${bdev_list
-	do
-		case "${bdev}" in
-			${_bdev})
-				return 0 ;;
-		esac
-	done
-
-	return 1
-}
-
 lock_bdev()
 {
     local bdev=${1}
@@ -77,6 +62,21 @@ lock_bdev()
     fi
 
     return 0
+}
+
+list_contains()
+{
+	local elem=${1} _elem="" list=${2}
+
+	for _elem in ${list}
+	do
+		case "${elem}" in
+			${_elem})
+				return 0 ;;
+		esac
+	done
+
+	return 1
 }
 
 case "${1}" in
@@ -231,7 +231,6 @@ cat <<EOF >${fstab_overlay}
 #  modified by lockroot at startup
 #
 EOF
-#sed -e '/\(^ro,\)\|\(,ro,\)\|\(,ro$\)\|\(^ro$\)/!q1'
 
 while IFS= read -r fstab_entry
 do
@@ -278,26 +277,32 @@ do
 			if ! [ "x${bdev}" = "x" ]
 			then
 					bdev_list=${bdev_list:-"${bdev_list} "}${bdev}
-				fi
-			else
-				echo "${entry}"
 			fi
+		else
+			echo "${entry}"
+		fi
 
 		continue
     fi
 
-    for mount in ${lockroot_lock}
+    for fsys in ${fsys_list}
 	do
-	    if [ "x${mount}" = "x${target}" ]
+	    if [ "x${fsys}" = "x${target}" ]
 		then
-			mntopts=$(echo "${mntopts}" | sed 's/\(rw,\)\|\(,rw\)\|\(^rw$\)//')
-			mntopts="ro${mntopts:+",${mntopts}"}"
-	    fi
+			mntopts=$(echo "${mntopts}" | sed -e '/\(^ro,\)\|\(,ro,\)\|\(,ro$\)\|\(^ro$\)/q1;\
+													\(^rw,\)\|\(,rw,\)\|\(,rw$\)\|\(^rw$\)/q2;\
+													s/^rw,/ro,/;s/,rw,/,ro,/;s/,rw$/,ro/;s/^rw$/ro/'
 
-	if [ "x${device}" != "x" ]
-	then
-	    devices="${devices:+"${devices} "}${device}"
-	fi
+			if [ S{?} -ne 1 -o ${?} -ne 2 ]
+			then
+				mntopts="${mntopts:-"${mntopts},"}ro"
+			fi
+
+			if [ "x${bdev}" != "x" ]
+			then
+	    		bdev_list="${bdev_list:-"${bdev_list} "}${device}"
+			fi
+		fi
     done
 done > ${fstab_overlay} <<EOF
 $(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^[[:blank:]]\+//;s/[[:blank:]]\+$//' ${fstab_system})
