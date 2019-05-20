@@ -4,16 +4,16 @@ recover_rootmnt()
 {
 	local _source=${1}
 
-	mount --move ${_source} ${rootmnt} || mount -o move ${_source} ${rootmnt} || \
+	{ mount -o move ${_source} ${rootmnt} || mount --move ${_source} ${rootmnt} } || \
 	panic "${mytag}: failed to recover root filesystem to '${rootmnt}'"
 }
 
-bd_resolve()
+bd_prepare()
 {
-    local _bdev=${1} _retvar=${2} 
+	local _bdev=${1} _retvar=${2} 
 	local _retval=
 
-    case "${_bdev}" in
+	case "${_bdev}" in
 		UUID=*)
 			_bdev=$(${bd_resolver} -U "${_bdev#*=}") ;;
 		LABEL=*)
@@ -22,15 +22,15 @@ bd_resolve()
 	   		: ;;
 		*)
 			_bdev="${udevdir}/${_bdev}" ;;
-    esac
+	esac
 
 	_retval=${?}
 	
-	( [ "x${_retvar}" != "x" ] && eval ${_retvar}=\"${_bdev}\" ) || echo "${_bdev}"
-    return ${retval}
+	{ [ "x${_retvar}" != "x" ] && eval ${_retvar}=\"${_bdev}\" } || echo "${_bdev}"
+	return ${_retval}
 }
 
-_blkid()
+_resolve()
 {
 	local _opt=${1} _blkid=${2} 
 	local _path="/dev/disk" 
@@ -50,33 +50,40 @@ _blkid()
 	_bdev=$(readlink -f "${_link}")
 	[ ${?} -ne 0 ] && { echo ""; return 1 }
 
-	echo "${bdev}"
+	echo "${_bdev}"
 	return 0
 }
 
 bd_contains()
 {
 	local _bdev=${1} _retvar=${2}
-	local _part=${_bdev##*/} _devdir=${_bdev%/*}
-	local _disk=""
+	local _part="" _disk="" _devdir=""
+
+	[ "x${_bdev}" = "x" ] && echo ""
+
+	_devdir=${_bdev%/*}
+
+	[ "x${_devdir}" = "x" ] && _devdir=${udevdir}
+
+	_part=${_bdev##*/} 
 
 	for _bdev in $(cd /sys/block; echo *)
 	do
 		case "${_part}" in
-			${bdev}*)
+			${_bdev}*)
 				_disk=${_bdev} ;;
 			*)
 				continue ;;
 		esac
 
-		( [ -d "/sys/block/${_disk}/${_part}" ] || \
-		  [ "x${_disk}" = "x${_part}" ] ) && \
-		[ -b "${_devdir}/${_disk}" ] && break
+		{ [ -d "/sys/block/${_disk}/${_part}" ] || \
+		  [ "x${_disk}" = "x${_part}" ] \
+		} && [ -b "${_devdir}/${_disk}" ] && break
 
 		_disk=""
 	done
 
-	( [ "x${_retvar}" != "x" ] && eval ${_retvar}=\"${_disk}\" ) || \
+	{ [ "x${_retvar}" != "x" ] && eval ${_retvar}=\"${_disk}\" } || \
 	echo "${_disk}"
 }
 
@@ -95,7 +102,8 @@ bd_lock()
 
 list_contains()
 {
-	local _entry=${1} _list=${2} __entry=""
+	local _entry=${1} _list=${2} 
+	local __entry=""
 
 	for __entry in ${_list}
 	do
@@ -109,15 +117,16 @@ list_contains()
 }
 
 case "${1}" in
-    prereqs)
-    	echo ""; exit 0 ;;
+	prereqs)
+		echo ""; exit 0 ;;
 esac
 
 . /scripts/functions
 
-mytag="lockroot"
-config_file="${rootmnt}/etc/lockroot.conf"
-nolock_file="${rootmnt}/nolockroot"
+mytag="syslock"
+udevdir="/dev"
+config_file="${rootmnt}/etc/syslock.conf"
+nolock_file="${rootmnt}/nosyslock"
 mp_blacklist=""
 bd_blacklist=""
 mp_list=""
@@ -128,38 +137,56 @@ nolockfs=""
 for opt in $(cat /proc/cmdline)
 do
 	case ${opt} in
-		nolockroot)
-			log_warning_msg "${mytag}: locking completely disabled, found kernel boot option 'nolockroot'"
-			exit 0 ;;
-		nolockbd=*)
-			bd_blacklist=$(IFS=','; echo ${opt#*=}) ;;
-		nolockbd)
-			log_warning_msg "${mytag}: block device locking disabled, found kernel boot option 'nolockbd'"
-			nolockbd="true" ;;
-		nolockfs=*)
-			mp_blacklist=$(IFS=','; echo ${opt#*=}) ;;
-		nolockfs)
-			log_warning_msg "${mytag}: mountpoint locking disabled, found kernel boot option 'nolockfs'"
-	    	nolockfs="true" ;;
+		syslock=*)
+			for opt in $(IFS=','; echo ${opt#*=})
+			do
+				case "${opt}" in
+					disabled)
+						log_warning_msg "${mytag}: locking completely disabled"
+						exit 0 ;;
+					bdev:*)
+						for bdev in $(IFS=','; echo ${opt#*:})
+						do
+							case "${bdev}" in
+								disabled)
+									log_warning_msg "${mytag}: block device locking disabled'"
+									nolockbd="true" ;;
+								-*)
+									bd_blacklist="${bd_blacklist:-"${bd_blacklist} "}${bdev}" ;;
+								*)
+									bd_list="${bd_list:-"${bd_list} "}${bdev}" ;;
+							esac
+						done ;;
+					fs:*)
+						for mpoint in $(IFS=','; echo ${opt#*:})
+						do
+							case "${mpoint}" in
+								disabled)
+									log_warning_msg "${mytag}: mountpoint locking disabled"
+	    							nolockfs="true" ;;
+								-*)
+									mp_blacklist="${mp_blacklist:-"${mp_blacklist} "}${mpoint}" ;;
+								*)
+									mp_list="${mp_list:-"${mp_list} "}${mpoint}" ;;
+							esac
+						done ;;
+				esac
+			done ;;
 	esac
 done
 
-if [ -e "${nolock_file}" ]
-then
-	log_warning_msg "${mytag}: disabled, found file '${nolock_file}'"
-	exit 0
-fi
+[ -e "${nolock_file}" ] && { log_warning_msg "${mytag}: disabled, found file '${nolock_file}'"; exit 0 }
 
 if [ -e "${config_file}" ]
 then
 	while IFS= read -r line
 	do
 		case "${line}" in
-			LOCKROOT_SWAP=*)
+			SYSLOCK_SWAP=*)
 				swap=${line#*=} ;;
-			LOCKROOT_LOCK_FS=*)
+			SYSLOCK_LOCK_FS=*)
 				mp_list=$(IFS=','; echo ${line#*=} ;;
-			LOCKROOT_LOCK_BDEV=*)
+			SYSLOCK_LOCK_BDEV=*)
 				bd_list=$(IFS=','; echo ${line#*=} ;;
 			*=*)
 				echo "${mytag}: unknown configuration paramter '${line%=*}'" ;;
@@ -177,76 +204,47 @@ ovl_upper_root=${ovl_base_root}/rw
 ovl_lower_root=${ovl_base_root}/ro
 ovl_work_root=${ovl_base_root}/.work
 
-if ! ( [ -d ${ovl_base_root} ] || mkdir -p ${ovl_base_root} )
-then
-	log_failure_msg "${mytag}: failed to create '${ovl_base_root}'"
-	exit 0
-fi
+{ [ -d ${ovl_base_root} ] || mkdir -p ${ovl_base_root} } || \
+{ log_failure_msg "${mytag}: failed to create '${ovl_base_root}'"; exit 0 }
 
-if ! mount -t tmpfs tmpfs-root ${ovl_base_root}
-then
-	log_failure_msg "${mytag}: failed to create tmpfs for root filesystem"
-	exit 0
-fi
+mount -t tmpfs tmpfs-root ${ovl_base_root} || \
+{ log_failure_msg "${mytag}: failed to create tmpfs for root filesystem"; exit 0 }
 
-if ! ( [ -d ${ovl_upper_root} ] || mkdir -p ${ovl_upper_root} )
-then
-	log_failure_msg "${mytag}: failed to create '${ovl_upper_root}'"
+{ [ -d ${ovl_upper_root} ] || mkdir -p ${ovl_upper_root} } || \
+{ log_failure_msg "${mytag}: failed to create '${ovl_upper_root}'"; exit 0 }
 	exit 0
-fi
 
-if ! ( [ -d ${ovl_lower_root} ] || mkdir -p ${ovl_lower_root} )
-then
-	log_failure_msg "${mytag}: failed to create '${ovl_lower_root}'"
-	exit 0
-fi
+{ [ -d ${ovl_lower_root} ] || mkdir -p ${ovl_lower_root} } || \
+{ log_failure_msg "${mytag}: failed to create '${ovl_lower_root}'"; exit 0 }
 
-if ! ( [ -d ${ovl_work_root} ] || mkdir -p ${ovl_work_root} )
-then
-	log_failure_msg "${mytag}: failed to create '${ovl_work_root}'"
-	exit 0
-fi
+{ [ -d ${ovl_work_root} ] || mkdir -p ${ovl_work_root} } || \
+{ log_failure_msg "${mytag}: failed to create '${ovl_work_root}'"; exit 0 }
 
-if ! ( mount --move ${rootmnt} ${ovl_lower_root} || mount -o move ${rootmnt} ${ovl_lower_root} )
-then
-	log_failure_msg "${mytag}: failed to move root filesystem from '${rootmnt}' to '${ovl_lower_root}'"
-	exit 0
-fi
+{ mount -o move ${rootmnt} ${ovl_lower_root} || mount --move ${rootmnt} ${ovl_lower_root} } || \
+[ log_failure_msg "${mytag}: failed to move root filesystem from '${rootmnt}' to '${ovl_lower_root}'"; exit 0 }
 
-if ! ( [ -d ${ovl_mount_root} ] || mkdir -p ${ovl_mount_root} )
-then
-	log_failure_msg "${mytag}: failed to create '${ovl_mount_root}'"
-	recover_rootmnt "${ovl_lower_root}"
-	exit 0
-fi
+{ [ -d ${ovl_mount_root} ] || mkdir -p ${ovl_mount_root} }
+{ log_failure_msg "${mytag}: failed to create '${ovl_mount_root}'"
+  recover_rootmnt "${ovl_lower_root}"; exit 0 }
 
-if ! mount -t overlay -o lowerdir=${ovl_lower_root},upperdir=${ovl_upper_root},workdir=${ovl_work_root} overlay-root ${ovl_mount_root}
-then
-	log_failure_msg "${mytag}: failed to create overlay for root filesystem"
-	recover_rootmnt "${ovl_lower_root}"
-	exit 0
-fi
+mount -t overlay -o lowerdir=${ovl_lower_root},upperdir=${ovl_upper_root},workdir=${ovl_work_root} overlay-root ${ovl_mount_root} || \
+{ log_failure_msg "${mytag}: failed to create overlay for root filesystem"
+  recover_rootmnt "${ovl_lower_root}"; exit 0 }
 
-if ! ( [ -d ${ovl_mount_root}${ovl_base_root} ] || mkdir -p ${ovl_mount_root}${ovl_base_root} )
-then
-	log_failure_msg "${mytag}: failed to create '${ovl_mount_root}${ovl_base_root}'"
-	recover_rootmnt "${ovl_lower_root}"
-	exit 0
-fi
+{ [ -d ${ovl_mount_root}${ovl_base_root} ] || mkdir -p ${ovl_mount_root}${ovl_base_root} } || \
+{ log_failure_msg "${mytag}: failed to create '${ovl_mount_root}${ovl_base_root}'"
+  recover_rootmnt "${ovl_lower_root}"; exit 0 }
 
-if ! ( mount --move ${ovl_base_root} ${ovl_mount_root}${ovl_base_root} || mount -o move ${ovl_base_root} ${ovl_mount_root}${ovl_base_root} )
-then
-	log_failure_msg "${mytag}: failed to move '${ovl_base_root}' to '${ovl_mount_root}${ovl_base_root}'"
-	recover_rootmnt "${ovl_lower_root}"
-	exit 0
-fi
+{ mount -o move ${ovl_base_root} ${ovl_mount_root}${ovl_base_root} || mount --move ${ovl_base_root} ${ovl_mount_root}${ovl_base_root} } || \
+{ log_failure_msg "${mytag}: failed to move '${ovl_base_root}' to '${ovl_mount_root}${ovl_base_root}'"
+  recover_rootmnt "${ovl_lower_root}"; exit 0 }
 
 fstab_system=${ovl_mount_root}${ovl_lower_root}/etc/fstab
 fstab_overlay=${ovl_mount_root}/etc/fstab
 
 cat <<EOF >${fstab_overlay}
 #
-#  modified by lockroot at startup
+#  modified by syslock at startup
 #
 EOF
 
@@ -266,11 +264,11 @@ do
 		if ! [ "x${bdev}" = "x" ]
 		then
 			bd_list=${bd_list:-"${bd_list} "}${bdev}
-			bd_disk=$(bdev_contains "${bdev}")
+			bd_disk=$(bd_contains "${bdev}")
 
-			( [ "x${bdev_disk}" = "x" ] && \
+			{ [ "x${bdev_disk}" = "x" ] && \
 			  log_warning_msg "${mytag}: failed to get block device containing '${bdev}'" 1>&2 \
-			) || bdev_list="${bdev_list} ${bdev_disk}" 
+			} || bdev_list="${bdev_list} ${bdev_disk}" 
 		fi
 
 		echo "#${entry}"
@@ -291,9 +289,8 @@ do
 
 	for mpoint in ${mp_list}
 	do
-		for _mpoint in ${mp_blacklist
-		do
-			[ "x${mpoint}" = "x${_mpoint}" ] || continue 2
+		for _mpoint in ${mp_blacklist}
+		do [ "x${mpoint}" = "x${_mpoint}" ] || continue 2
 		done
 
 	    if [ "x${mpoint}" = "x${target}" ]
@@ -306,12 +303,9 @@ done > ${fstab_overlay} <<EOF
 $(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^\([[:blank:]]\+\)\|\([[:blank:]]\+$\)//' ${fstab_system})
 EOF
 
-if ! ( mount --move ${ovl_mount_root} ${rootmnt} || mount -o move ${ovl_mount_root} ${rootmnt} )
-then
-	log_failure_msg "${mytag}: failed to move '${ovl_mount_root}' to '${rootmnt}'"
-	recover_rootmnt "${ovl_mount_root}${ovl_lower_root}"
-	exit 0
-fi
+{ mount -o move ${ovl_mount_root} ${rootmnt} || mount --move ${ovl_mount_root} ${rootmnt} } || \
+{ log_failure_msg "${mytag}: failed to move '${ovl_mount_root}' to '${rootmnt}'"
+  recover_rootmnt "${ovl_mount_root}${ovl_lower_root}"; exit 0 }
 
 log_success_msg "${mytag}: sucessfully set up overlay for root filesystem"
 
