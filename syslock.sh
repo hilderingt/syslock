@@ -102,18 +102,47 @@ bd_lock()
 
 list_contains()
 {
-	local _entry=${1} _list=${2} 
-	local __entry=""
+	local _list=${1} _item=${2} _delim=${3} _oifs=${IFS}
+	local _member="" _retval=$((1))
 
-	for __entry in ${_list}
+	IFS=${_delim:-' '}
+
+	for _member in ${_list}
 	do
-		case "${_entry}" in
-			${__entry})
-				return 0 ;;
+		case "${_item}" in
+			${_member})
+				retval=$((0)); 
+				break ;;
 		esac
 	done
 
-	return 1
+	IFS=${_oifs}
+	return ${retval}
+}
+
+list_add()
+{
+	local _listvar=${1} _item=${2} _delim=${3}
+	local _list=""
+
+	[ "x${_listvar}" = "x" ] && return 1
+	[ "x${_item}" = "x" ] && return 0
+
+	list=$(eval \"\$\{${_listvar}\}\")
+	[ ${?} -ne 0 ] && return 1
+	
+	if ! [ "x${_list}" = "x" ]
+	then
+		if ! list_contains "${_list}" "${_item}" "${_delim}"
+		then
+			eval ${_listvar}=\"${_list}${_delim:-' '}${_item}\" || \
+			return 1
+		fi
+	else
+		eval ${_listvar}=\"${_item}\" || return 1
+	fi
+
+	return 0
 }
 
 case "${1}" in
@@ -152,9 +181,11 @@ do
 									log_warning_msg "${mytag}: block device locking disabled'"
 									nolockbd="true" ;;
 								-*)
-									bd_blacklist="${bd_blacklist:-"${bd_blacklist} "}${bdev}" ;;
+									list_add "bd_blacklist" "${bdev}" " " || \
+									log_warning_msg "${mytag}: blacklisting '${bdev}' failed" ;;
 								*)
-									bd_list="${bd_list:-"${bd_list} "}${bdev}" ;;
+									list_add "bd_list" "${bdev}" "" || \
+									log_warning_msg "${mytag}: listing '${bdev}' failed" ;;
 							esac
 						done ;;
 					fs:*)
@@ -163,11 +194,13 @@ do
 							case "${mpoint}" in
 								disabled)
 									log_warning_msg "${mytag}: mountpoint locking disabled"
-	    							nolockfs="true" ;;
+	    								nolockfs="true" ;;
 								-*)
-									mp_blacklist="${mp_blacklist:-"${mp_blacklist} "}${mpoint}" ;;
+									list_add "mp_blacklist" "${mpoint}" " " || \
+									log_warning_msg "${mytag}: blacklisting '${mpoint}' failed" ;;
 								*)
-									mp_list="${mp_list:-"${mp_list} "}${mpoint}" ;;
+									list_add "mp_list" "${mpoint}" "" || \
+									log_warning_msg "${mytag}: listing '${mpoint}' failed" ;;
 							esac
 						done ;;
 				esac
