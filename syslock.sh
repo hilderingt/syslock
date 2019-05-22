@@ -46,10 +46,10 @@ do
 									log_warning_msg "${mytag}: block device locking disabled'"
 									nolockbd="true" ;;
 								-*)
-									list_add "bd_blacklist" "${bdev}" " " || \
+									list_add "bd_blacklist" "${bdev}" || \
 									log_warning_msg "${mytag}: blacklisting '${bdev}' failed" ;;
 								*)
-									list_add "bd_list" "${bdev}" "" || \
+									list_add "bd_list" "${bdev}" || \
 									log_warning_msg "${mytag}: listing '${bdev}' failed" ;;
 							esac
 						done ;;
@@ -61,10 +61,10 @@ do
 									log_warning_msg "${mytag}: mountpoint locking disabled"
 	    								nolockfs="true" ;;
 								-*)
-									list_add "mp_blacklist" "${mpoint}" " " || \
+									list_add "mp_blacklist" "${mpoint}" || \
 									log_warning_msg "${mytag}: blacklisting '${mpoint}' failed" ;;
 								*)
-									list_add "mp_list" "${mpoint}" "" || \
+									list_add "mp_list" "${mpoint}" || \
 									log_warning_msg "${mytag}: listing '${mpoint}' failed" ;;
 							esac
 						done ;;
