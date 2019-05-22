@@ -49,7 +49,7 @@ bd_prepare()
 bd_contains()
 {
 	local _bdev=${1} _disks=${2} _retvar=${3}
-	local _part="" _disk="" _devdir="" _again="y"
+	local _part="" _disk="" _devdir="" _again=""
 
 	[ "x${_bdev}" = "x" ] && { echo ""; return; }
 

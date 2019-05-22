@@ -1,5 +1,18 @@
 #!/bin/sh
 
+mytag="syslock"
+config_file="${rootmnt}/etc/syslock.conf"
+nolock_file="${rootmnt}/nosyslock"
+mp_blacklist=""
+bd_blacklist=""
+mp_list=""
+bd_list=""
+nolockbd=""
+nolockfs=""
+disks=""
+disk=""
+bdev=""
+
 recover_rootmnt()
 {
 	local _source=${1}
@@ -10,23 +23,83 @@ recover_rootmnt()
 	fi
 }
 
+parse_list_bdev()
+{
+	local _list=${1} _bdev="" _disk="" _ignore=""
+
+	for _bdev in $(IFS=','; echo ${_list#*:})
+	do
+		case "${_bdev}" in
+			disabled)
+				log_warning_msg "${mytag}: block device locking disabled'"
+				nolockbd="true" ;;
+			-*)
+				_bdev=${_bdev#-}
+				_ignore="y" ;;
+		esac
+
+		case "${_bdev}" in
+			_disk=*)
+				_bdev=${bdev#disk=}
+				_disk="y" ;;
+		esac
+
+		_bdev=$(bd_prepare "${_bdev}")
+		[ "x${_bdev}" = "x"  ] && continue
+
+		if [ "x${_disk}" = "xy" ] 
+		then
+			_disk=$(bd_contains "${_bdev}")
+
+			if [ "x${_disk}" = "x" ]
+			then
+				log_warning_msg "${mytag}: failed to get containing block device for '${_bdev}'"
+				continue
+			fi
+		
+			list_add "disks" "${_disk}" || \
+			log_warning_msg "${mytag}: failed to add '${_disk}' to disk block device list"
+			_bdev=${_disk}
+		fi
+
+		if [ "x${_ignore}" != "xy" ]
+		then
+			list_add "bd_list" "${_bdev}" || \
+			log_warning_msg "${mytag}: failed to add '${_bdev}' to block device list"
+		else
+			list_add "bd_blacklist" "${_bdev}" || \
+			log_warning_msg "${mytag}: failed to add '${_bdev}' to block device blacklist"
+		fi
+	done
+}
+
+parse_list_mpoint()
+{
+	local _list=${1} _mpoint=""
+
+	for _mpoint in $(IFS=','; echo ${_list#*:})
+	do
+		case "${_mpoint}" in
+			disabled)
+				log_warning_msg "${mytag}: filesystem locking disabled"
+				nolockfs="true" ;;
+			-*)
+				list_add "mp_blacklist" "${_mpoint}" || \
+				log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem blacklist" ;;
+			*)
+				list_add "mp_list" "${mpoint}" || \
+				log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem list" ;;
+		esac
+	done
+}
+
 case "${1}" in
 	prereqs)
 		echo ""; exit 0 ;;
 esac
 
 . /scripts/functions
-
-mytag="syslock"
-udevdir="/dev"
-config_file="${rootmnt}/etc/syslock.conf"
-nolock_file="${rootmnt}/nosyslock"
-mp_blacklist=""
-bd_blacklist=""
-mp_list=""
-bd_list=""
-nolockbd=""
-nolockfs=""
+. /lib/syslock/functions
 
 for opt in $(cat /proc/cmdline)
 do
@@ -36,39 +109,11 @@ do
 			do
 				case "${opt}" in
 					disabled)
-						log_warning_msg "${mytag}: locking completely disabled"
-						exit 0 ;;
-					bdev:*)
-						for bdev in $(IFS=','; echo ${opt#*:})
-						do
-							case "${bdev}" in
-								disabled)
-									log_warning_msg "${mytag}: block device locking disabled'"
-									nolockbd="true" ;;
-								-*)
-									list_add "bd_blacklist" "${bdev}" || \
-									log_warning_msg "${mytag}: blacklisting '${bdev}' failed" ;;
-								*)
-									list_add "bd_list" "${bdev}" || \
-									log_warning_msg "${mytag}: listing '${bdev}' failed" ;;
-							esac
-						done ;;
+						log_warning_msg "${mytag}: locking completely disabled"; exit 0 ;;
 					fs:*)
-						for mpoint in $(IFS=','; echo ${opt#*:})
-						do
-							case "${mpoint}" in
-								disabled)
-									log_warning_msg "${mytag}: mountpoint locking disabled"
-	    								nolockfs="true" ;;
-								-*)
-									list_add "mp_blacklist" "${mpoint}" || \
-									log_warning_msg "${mytag}: blacklisting '${mpoint}' failed" ;;
-								*)
-									list_add "mp_list" "${mpoint}" || \
-									log_warning_msg "${mytag}: listing '${mpoint}' failed" ;;
-							esac
-						done ;;
-				esac
+						parse_list_mpoint "${opt#*:}" ;;
+					bdev:*)
+						parse_list_bdev "${opt#*:}" ;;
 			done ;;
 	esac
 done
@@ -83,9 +128,13 @@ then
 			SYSLOCK_SWAP=*)
 				swap=${line#*=} ;;
 			SYSLOCK_LOCK_FS=*)
-				mp_list=$(IFS=','; echo ${line#*=} ;;
+				for mpoint in $(IFS=','; echo ${line#*=}
+				do
+					list_add "mp_list" "${mpoint}" || \
+					log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem list"
+				done ;;
 			SYSLOCK_LOCK_BDEV=*)
-				bd_list=$(IFS=','; echo ${line#*=} ;;
+				parse_list_bdev "${line#*=}" ;;
 			*=*)
 				echo "${mytag}: unknown configuration paramter '${line%=*}'" ;;
 			*)
@@ -144,10 +193,6 @@ cat <<EOF >${fstab_overlay}
 #  modified by syslock at startup
 #
 EOF
-
-bdev=""
-disk=""
-disks=""
 
 while IFS= read -r fstab_entry
 do
