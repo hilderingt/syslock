@@ -83,19 +83,6 @@ bd_contains()
 	{ [ "x${_retvar}" != "x" ] && eval ${_retvar}=\"${_disk}\"; } || echo "${_disk}"
 }
 
-bd_lock()
-{
-	local _bdev=${1}
-
-	if [ "x${_bdev}" != "x" ] && ! blockdev --setro "${_bdev}"
-	then
-		log_warning_msg "${mytag}: failed to set device '${_bdev}' read-only"
-		return 1
-	fi
-
-	return 0
-}
-
 list_contains()
 {
 	local _list=${1} _item=${2} _delim=${3:-' '} _oifs=${IFS}

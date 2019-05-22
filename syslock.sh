@@ -118,7 +118,7 @@ do
 	esac
 done
 
-[ -e "${nolock_file}" ] && { log_warning_msg "${mytag}: disabled, found file '${nolock_file}'"; exit 0 ; }
+[ -e "${nolock_file}" ] && { log_warning_msg "${mytag}: disabled, found file '${nolock_file}'"; exit 0; }
 
 if [ -e "${config_file}" ]
 then
@@ -138,7 +138,7 @@ then
 			*=*)
 				echo "${mytag}: unknown configuration paramter '${line%=*}'" ;;
 			*)
-				echo "${mytag}: invalid line '${line}'" ;;
+				echo "${mytag}: invalid input '${line}'" ;;
 		esac
 	done <<-EOF
 	$(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^\([[:blank:]]\+\)\|\([[:blank:]]\+$\)//' "${config_file}")
@@ -257,10 +257,19 @@ done > ${fstab_overlay} <<EOF
 $(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^\([[:blank:]]\+\)\|\([[:blank:]]\+$\)//' ${fstab_system})
 EOF
 
+for bdev in ${bd_list}
+do
+	for _bdev in ${bd_blacklist}
+	do [ "x${bdev}" = "x${_bdev}" ] && continue 2
+	done
+
+	blockdev --setro "${bdev}" || \
+	log_warning_msg "${mytag}: failed to set block device '${bdev}' read-only"
+done
+
 { mount -o move ${ovl_mount_root} ${rootmnt} || mount --move ${ovl_mount_root} ${rootmnt}; } || \
 { log_failure_msg "${mytag}: failed to move '${ovl_mount_root}' to '${rootmnt}'"
   recover_rootmnt "${ovl_mount_root}${ovl_lower_root}"; exit 0; }
 
 log_success_msg "${mytag}: sucessfully set up overlay for root filesystem"
-
 exit 0
