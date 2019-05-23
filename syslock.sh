@@ -136,6 +136,7 @@ do
 						parse_list_mpoint "${opt#*:}" ;;
 					*)
 						;;
+				esac
 			done ;;
 	esac
 done
@@ -152,7 +153,7 @@ then
 			SYSLOCK_SWAP=*)
 				swap=${line#*=} ;;
 			SYSLOCK_LOCK_FS=*)
-				if ! [ ${nolockfs} -gt 0 ]; then for mpoint in $(IFS=','; echo ${line#*=}
+				if ! [ ${nolockfs} -gt 0 ]; then for mpoint in $(IFS=','; echo ${line#*=})
 				do
 					if ! list_add "mp_list" "${mpoint}"
 					then log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem list"
