@@ -5,7 +5,7 @@ _blkid()
 	local _opt=${1} _blkid=${2} 
 	local _bdev="" _subdir=""
 
-	[ "x${_blkid}" = "x" ] && { echo ""; return 1; }
+	if [ "x${_blkid}" = "x" ]; then echo ""; return 1; fi
 
 	case "${_opt}" in
 		-L)
@@ -16,8 +16,9 @@ _blkid()
 			echo ""; return 1 ;;
 	esac
 
-	_bdev=$(readlink -f "/dev/disk/${subdir}/${_blkid}") || \
-	 { echo ""; return 1; }
+	if _bdev=$(readlink -f "/dev/disk/${subdir}/${_blkid}")
+	then echo ""; return 1;
+	fi
 
 	echo "${_bdev}"
 	return 0
@@ -41,7 +42,10 @@ bd_prepare()
 
 	_retval=$?
 	
-	{ [ "x${_retvar}" != "x" ] && eval ${_retvar}=\"${_bdev}\"; } || echo "${_bdev}"
+	if ! [ -b "${_bdev}" ]; then _bdev=""; fi	
+	if [ "x${_retvar}" != "x" ]; then if ! eval ${_retvar}=\"${_bdev}\"
+	then echo "${_bdev}"; fi
+	fi
 
 	return ${_retval}
 }
@@ -51,7 +55,7 @@ bd_contains()
 	local _bdev=${1} _disks=${2} _retvar=${3}
 	local _part="" _disk="" _devdir="" _again=""
 
-	[ "x${_bdev}" = "x" ] && { echo ""; return; }
+	if [ "x${_bdev}" = "x" ]; then echo ""; return; fi
 
 	_part=${_bdev##*/}
 	_devdir=${_bdev%/*}
@@ -68,19 +72,22 @@ bd_contains()
 					continue ;;
 			esac
 
-			{ { [ -d "/sys/block/${_disk}/${_part}" ] || [ "x${_disk}" = "x${_part}" ]; } && \
-			[ -b "${_devdir}/${_disk}" ]; } && break 2
+			if [ -d "/sys/block/${_disk}/${_part}" ] || [ "x${_disk}" = "x${_part}" ]
+			then if [ -b "${_devdir}/${_disk}" ]; then break 2; fi
+			fi
 
 			_disk=""
 		done
 
-		[ "x${_again}" = "xn" ] && break
+		if [ "x${_again}" = "xn" ]; then break; fi
 
 		_disks=$(cd /sys/block; echo *)
 		_again="n"
 	done
 
-	{ [ "x${_retvar}" != "x" ] && eval ${_retvar}=\"${_disk}\"; } || echo "${_disk}"
+	if [ "x${_retvar}" != "x" ]
+	then if ! eval ${_retvar}=\"${_disk}\"; then echo "${_disk}"; fi
+	fi
 }
 
 list_contains()
@@ -108,20 +115,18 @@ list_add()
 	local _listvar=${1} _item=${2} _delim=${3:-' '} _added=${4}
 	local _list=""
 
-	[ "x${_listvar}" = "x" ] && return 1
-	[ "x${_item}" = "x" ] && return 0
-
-	eval _list=\"\$\{${_listvar}\}\" || return 1
+	if [ "x${_listvar}" = "x" ]; then return 1; fi
+	if [ "x${_item}" = "x" ]; then return 0; fi
+	if ! eval _list=\"\$\{${_listvar}\}\"; then return 1; fi
 	
 	if ! [ "x${_list}" = "x" ]
 	then
 		if ! list_contains "${_list}" "${_item}" "${_delim}"
 		then
-			eval ${_listvar}=\"${_list}${_delim}${_item}\" || return 1
-			[ "x${_added}" = "x" ] || eval ${_added}=\"\$\(\(1\)\)
+			if ! eval ${_listvar}=\"${_list}${_delim}${_item}\"; then return 1; fi
+			if [ "x${_added}" = "x" ]; then eval ${_added}=\"\$\(\(1\)\); fi
 		fi
-	else
-		eval ${_listvar}=\"${_item}\" || return 1
+	else if ! eval ${_listvar}=\"${_item}\"; then return 1; fi
 	fi
 
 	return 0
