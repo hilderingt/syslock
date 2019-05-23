@@ -43,7 +43,7 @@ _blkid()
 bd_prepare()
 {
 	local _bdev=${1} _retvar=${2} 
-	local _retval=""
+	local _retval=
 
 	case "${_bdev}" in
 		UUID=*)
@@ -59,7 +59,7 @@ bd_prepare()
 	_retval=$?
 	
 	if ! [ -b "${_bdev}" ]; then _bdev=""; fi	
-	if [ "x${_retvar}" != "x" ]; then if ! eval ${_retvar}=\"${_bdev}\"
+	if [ "x${_retvar}" = "x" ] || ! eval ${_retvar}=\"${_bdev}\"
 	then echo "${_bdev}"; fi
 	fi
 

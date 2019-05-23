@@ -40,7 +40,7 @@ recover_rootmnt()
 
 parse_list_bdev()
 {
-	local _list=${1} _bdev= "" _disk= _ignore=
+	local _list=${1} _bdev="" _disk= _ignore=
 
 	if [ "x${_list}" = "xdisabled" ]
 	then log_warning_msg "${mytag}: block device locking disabled'"; nolockbd=$((1)); return
@@ -134,8 +134,9 @@ do
 						parse_list_bdev "${opt#*:}" ;;
 					fs:*)
 						parse_list_mpoint "${opt#*:}" ;;
+					swap:*)
+						swap=${opt#*:} ;;
 					*)
-						;;
 				esac
 			done ;;
 	esac
@@ -170,6 +171,9 @@ then
 	$(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^\([[:blank:]]\+\)\|\([[:blank:]]\+$\)//' "${config_file}")
 	EOF
 fi
+
+if ! [ ${nolockbd} -gt 0 ]; then bd_list=""; bd_blacklist=""; fi
+if ! [ ${nolockfs} -gt 0 ]; then mp_list=""; mp_blacklist=""; fi
 
 ovl_mount_root=/mnt/overlay
 ovl_base_root=/.lock/root
@@ -234,6 +238,8 @@ do
 	${fstab_entry}
 	EOF
 
+	bdev=""
+
 	if ! [ ${nolockbd} -gt 0 ]
 	then bdev=$(bd_prepare "${source}") && log_warning_msg "${mytag}: failed to get block device for '${source}'" >&2
 	fi
@@ -278,7 +284,7 @@ do
 		continue
 	fi
 
-	if [ ${nolockfs} -eq 0 ]; then for mpoint in ${mp_list}
+	for mpoint in ${mp_list}
 	do
 		for _mpoint in ${mp_blacklist}
 		do if [ "x${mpoint}" = "x${_mpoint}" ]; then continue 2; fi
@@ -292,12 +298,12 @@ do
 			
 			echo "${source} ${target} lock underlying_fs=${fstype},${mntopts} 0 0"
 		fi
-	done; fi
+	done
 done > ${fstab_overlay} <<EOF
 $(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^\([[:blank:]]\+\)\|\([[:blank:]]\+$\)//' ${fstab_system})
 EOF
 
-if ! [ ${nolockbd} -gt 0 ]; then for bdev in ${bd_list}
+for bdev in ${bd_list}
 do
 	for _bdev in ${bd_blacklist}
 	do if [ "x${bdev}" = "x${_bdev}" ]; then continue 2; fi
@@ -305,7 +311,7 @@ do
 
 	blockdev --setro "${bdev}" || \
 	log_warning_msg "${mytag}: failed to set block device '${bdev}' read-only"
-done; fi
+done
 
 if mount -o move ${ovl_mount_root} ${rootmnt} || mount --move ${ovl_mount_root} ${rootmnt}
 then
