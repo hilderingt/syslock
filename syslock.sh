@@ -28,6 +28,7 @@ bd_list=""
 disks=""
 disk=""
 bdev=""
+swap=""
 
 recover_rootmnt()
 {
@@ -38,15 +39,15 @@ recover_rootmnt()
 	fi
 }
 
-parse_list_bdev()
+bd_parse_list()
 {
 	local _list=${1} _bdev="" _disk= _ignore=
 
 	if [ "x${_list}" = "xdisabled" ]
 	then log_warning_msg "${mytag}: block device locking disabled'"; nolockbd=$((1)); return
-	fi		
+	fi	
 
-	for _bdev in $(IFS=','; echo ${_list#*:})
+	for _bdev in $(IFS=','; echo ${_list})
 	do
 		_ignore=$((0)); _disk=$((0))
 
@@ -60,13 +61,19 @@ parse_list_bdev()
 				_bdev=${_bdev#disk=}; _disk=$((1)) ;;
 		esac
 
-		_bdev=$(bd_prepare "${_bdev}")
-
-		if [ "x${_bdev}" = "x"  ]; then continue; fi
+		if ! _bdev=$(bd_prepare "${_bdev}") || [ "x${_bdev}" = "x" ]; then continue; fi
+		_len=$(set -- ${_bdev}; echo $#)
 
 		if [ ${_disk} -gt 0  ] 
 		then
-			_disk=$(bd_contains "${_bdev}")
+			if [ ${_len} -gt 1 ]
+			then _first=${_bdev}
+			else _first=$(set -- ${_bdev}; echo ${1})
+			fi
+
+			if ! [ -b "${_first}" ]; then continue; fi
+
+			_disk=$(bd_contains "${_first}")
 
 			if [ "x${_disk}" = "x" ]
 			then
@@ -74,23 +81,39 @@ parse_list_bdev()
 				continue
 			fi
 		
-			list_add "disks" "${_disk}" || \
-			log_warning_msg "${mytag}: failed to add '${_disk}' to disk block device list"
-			_bdev=${_disk}
+			if ! list_contains "${disks}" "${_disk}"
+			then 
+				if ! list_add "disks" "${_disk}"
+				then log_warning_msg "${mytag}: failed to add '${_disk}' to disk block device list"
+				fi
+
+				if [ ${_len} -gt 1 ] && ! list_contains "${_bdev}" "${_disk}"
+				then _bdev="${_disk} ${_bdev}"
+				else _bdev=${_disk}
+				fi
+			else _bdev=""
+			fi			
 		fi
 
-		if [ ${_ignore} -gt 0 ]
-		then
-			list_add "bd_list" "${_bdev}" || \
-			log_warning_msg "${mytag}: failed to add '${_bdev}' to block device list"
-		else
-			list_add "bd_blacklist" "${_bdev}" || \
-			log_warning_msg "${mytag}: failed to add '${_bdev}' to block device blacklist"
-		fi
+		for _bdev in ${_bdev}
+		do
+			if ! [ -b "${_bdev}" ]; then continue; fi
+
+			if ! [ ${_ignore} -gt 0 ]
+			then
+				if ! list_add "bd_list" "${_bdev}"
+				then log_warning_msg "${mytag}: failed to add '${_bdev}' to block device list"
+				fi
+			else
+				if ! list_add "bd_blacklist" "${_bdev}"
+				then log_warning_msg "${mytag}: failed to add '${_bdev}' to block device blacklist"
+				fi
+			fi
+		done
 	done
 }
 
-parse_list_mpoint()
+mp_parse_list()
 {
 	local _list=${1} _mpoint=""
 
@@ -98,15 +121,17 @@ parse_list_mpoint()
 	then log_warning_msg "${mytag}: filesystem locking disabled"; nolockfs=$((1)); return
 	fi
 
-	for _mpoint in $(IFS=','; echo ${_list#*:})
+	for _mpoint in $(IFS=','; echo ${_list})
 	do
 		case "${_mpoint}" in
 			-*)
-				list_add "mp_blacklist" "${_mpoint}" || \
-				log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem blacklist" ;;
+				if ! list_add "mp_blacklist" "${_mpoint#-}"
+				then log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem blacklist"
+				fi ;;
 			*)
-				list_add "mp_list" "${mpoint}" || \
-				log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem list" ;;
+				if ! list_add "mp_list" "${_mpoint}"
+				then log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem list"
+				fi ;;
 		esac
 	done
 }
@@ -123,17 +148,19 @@ for opt in $(cat /proc/cmdline)
 do
 	case ${opt} in
 		syslock=*)
-			if [ "x${opt#*=}" = "xdisabled" ]
+			opt=${opt#*=}
+
+			if [ "x${opt}" = "xdisabled" ]
 			then log_warning_msg "${mytag}: locking completely disabled"; exit 0
 			fi
 
-			for opt in $(IFS=','; echo ${opt#*=})
+			for opt in $(IFS=';'; echo ${opt})
 			do
 				case "${opt}" in
-					bdev:*)
-						parse_list_bdev "${opt#*:}" ;;
 					fs:*)
-						parse_list_mpoint "${opt#*:}" ;;
+						mp_parse_list "${opt#*:}" ;;
+					bdev:*)
+						bd_parse_list "${opt#*:}" ;;
 					swap:*)
 						swap=${opt#*:} ;;
 					*)
@@ -152,12 +179,15 @@ then
 	do
 		case "${line}" in
 			SYSLOCK_SWAP=*)
-				swap=${line#*=} ;;
+				if ! [ "x${swap}" = "x" ]; then swap=${line#*=}; fi ;;
 			SYSLOCK_LOCK_FS=*)
 				if ! [ ${nolockfs} -gt 0 ]; then for mpoint in $(IFS=','; echo ${line#*=})
 				do
-					if ! list_add "mp_list" "${mpoint}"
-					then log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem list"
+					if ! list_contains "${mp_list}" "${mpoint}"
+					then 
+						if ! list_add "mp_list" "${mpoint}"
+						then log_warning_msg "${mytag}: failed to add '${_mpoint}' to filesystem list"
+						fi
 					fi
 				done; fi ;;
 			SYSLOCK_LOCK_BDEV=*)
@@ -171,6 +201,8 @@ then
 	$(sed -e '/^[[:blank:]]*\(#\|$\)/d;s/^\([[:blank:]]\+\)\|\([[:blank:]]\+$\)//' "${config_file}")
 	EOF
 fi
+
+exit 0
 
 if ! [ ${nolockbd} -gt 0 ]; then bd_list=""; bd_blacklist=""; fi
 if ! [ ${nolockfs} -gt 0 ]; then mp_list=""; mp_blacklist=""; fi
@@ -248,9 +280,11 @@ do
 	then
 		if ! [ "x${bdev}" = "x" ]
 		then
-			list_add "bd_list" "${bdev}" || \
-			log_warning_msg "${mytag}: failed to add '${bdev}' block device list" >&2
-			bd_contains "${bdev}" "${disks}" "disk"
+			if ! list_add "bd_list" "${bdev}"
+			then log_warning_msg "${mytag}: failed to add '${bdev}' block device list" >&2
+			fi
+
+			disk=bd_contains "${bdev}" "${disks}"
 
 			if ! [ "x${disk}" = "x" ]
 			then
@@ -271,7 +305,7 @@ do
 
 	if [ "x${fstype}" = "xswap" ]
 	then
-		if [ "x${swap}" != "xtrue" ] && [ "x${bdev}" != "x" ]
+		if [ "x${swap}" != "xdisabled" ] && [ "x${bdev}" != "x" ]
 		then
 			if ! list_add "bd_list" "${bdev}"
 			then log_warning_msg "${mytag}: failed to add '${bdev}' to block device list" >&2
