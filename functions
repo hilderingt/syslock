@@ -18,7 +18,7 @@
 
 bd_prepare()
 {
-	local _bdev=${1}
+	local _bdev="${1}"
 	local _retv=
 
 	case "${_bdev}" in
@@ -40,7 +40,7 @@ bd_prepare()
 
 _blkid()
 {
-	local _opt=${1} _blkid=${2} 
+	local _opt="${1}" _blkid="${2}"
 	local _bdev="" _subdir=""
 
 	if [ "x${_blkid}" = "x" ]; then echo ""; return 1; fi
@@ -64,7 +64,7 @@ _blkid()
 
 bd_contains()
 {
-	local _bdev=${1} _disks=${2} _retvar=${3}
+	local _bdev="${1}" _disks="${2}" _retvar="${3}"
 	local _part="" _disk="" _devdir="" _again=""
 
 	if [ "x${_bdev}" = "x" ]; then echo ""; return; fi
@@ -104,7 +104,7 @@ bd_contains()
 
 list_contains()
 {
-	local _list=${1} _item=${2} _ifs=${3:-' '}
+	local _list="${1}" _item="${2}" _ifs="${3:-" "}"
 	local _member="" _retval=$((1))
 
 	if [ "x${_list}" = "x" ]; then return 1; fi
@@ -123,9 +123,9 @@ list_contains()
 	return ${_retval}
 }
 
-list_add()
+list_add_item()
 {
-	local _list=${1} _item=${2} _ifs=${3:-' '}
+	local _list="${1}" _item="${2}" _ifs="${3:-" "}"
 	local _data=""
 
 	if [ "x${_list}" = "x" ]; then return 1; fi
@@ -134,19 +134,39 @@ list_add()
 	_data=$(eval echo \"\$\{${_list}\}\")
 
 	if ! [ "x${_data}" = "x" ]
-	then if ! eval ${_list}=\"${_list}${_ifs}${_item}\"; then return 1; fi
+	then if ! eval ${_list}=\"${_data}${_ifs}${_item}\"; then return 1; fi
 	else if ! eval ${_list}=\"${_item}\"; then return 1; fi
 	fi
 
 	return 0
 }
 
+list_get_item()
+{
+	local _list="${1}" _index="${2}" _ifs="${3:-" "}"
+	local _len="" _item=""
+
+	if [ "x${_list}" = "x" ]; then echo ""; fi
+
+	_item=$(
+	IFS="${_ifs}";
+	index=${_index};
+	set -- ${_list};
+	while [ ${index} -gt 9 ];
+	do
+		index=$((index-9)); shift 9; 
+	done;
+	eval echo \"\$\{${index}\}\")
+
+	echo "${_item}"
+}
+
 list_len()
 {
-	local _list=${1} _len=
+	local _list="${1}" _len=
 
 	if [ "x${_list}" = "x" ]; then return 0; fi
 
-	_len=$(($(set -- ${_list}; echo $#)+1)
+	_len=$(($(set -- ${_list}; echo $#)))
 	return ${_len}
 }
